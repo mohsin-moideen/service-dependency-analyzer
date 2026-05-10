@@ -75,51 +75,172 @@ State persists on the `sda-data` volume — restart with `docker compose up -d` 
 
 ---
 
-## Browse the API
+## Ask Claude about the graph (MCP integration)
 
+The compose stack ships an **MCP sidecar** that exposes the six read queries as tools an LLM client can call. Point Claude Desktop or Claude Code at the running sidecar and you can skip `curl` entirely — ask plain-English questions and watch Claude pick the right query, call it, and render the answer:
+
+![Claude calling the SDA reachable query through MCP and rendering the dependency tree as a coloured graph by hop depth](./docs/mcp-debugging.png)
+
+That screenshot is from one prompt: *"show me paths from svc-01208"*. Claude called `reachable`, got back the JSON, and drew the dependency tree with depth-coloured nodes — Hop 1 in violet, Hop 2–3 green, Hop 4–6 blue, Hop 7+ orange, plus highlighted critical nodes and a cycle marker. Same pattern works for *"are there any cycles right now?"*, *"who depends on db-primary?"*, *"what's the blast radius of payments?"* and so on.
+
+**Wiring:**
+
+```bash
+# After `docker compose up -d`, point your MCP client at the sidecar:
+docker exec -i sda-mcp node /app/dist/index.js
 ```
-http://localhost:8080/swagger-ui.html
+
+Full Claude Desktop / Claude Code config snippets are in [`mcp/README.md`](./mcp/README.md). The sidecar is read-only by design — event ingest is intentionally not exposed to the LLM, so it can't mutate state.
+
+---
+
+## API reference
+
+Swagger UI for clickable browsing: <http://localhost:8080/swagger-ui.html>
+
+Or use the `curl` invocations below — each block is copy-pasteable.
+
+### Publishing events
+
+Four event types. Each requires `event_id` (unique) and `timestamp` (ISO-8601 UTC).
+
+**`dependency_observed`** — adds or refreshes edge `source → target`, contributes one sample to its rolling-avg latency and health window.
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"dependency_observed","event_id":"e-1","timestamp":"2026-05-10T12:00:00Z","source":"checkout","target":"payments","latency_ms":42,"status":"ok"}'
+# 202 Accepted
 ```
 
-…or hit each endpoint directly:
+**`dependency_removed`** — deletes edge `source → target` if it exists. No-op if it doesn't (counted, not error).
 
-| Endpoint | Returns |
-|---|---|
-| `GET /api/v1/graph/reachable/{service}` | Every service downstream of `{service}`, with one path each. |
-| `GET /api/v1/graph/dependents/{service}` | Reverse — every service that transitively depends on `{service}`. |
-| `GET /api/v1/graph/shortest-path?source=&target=` | Lowest-latency path (Dijkstra over rolling-avg latencies). |
-| `GET /api/v1/graph/critical-services?k=` | Top-k by criticality score (in-degree × out-degree). |
-| `GET /api/v1/graph/cycles` | Every elementary cycle currently in the graph. |
-| `GET /api/v1/graph/health/{service}?windowSeconds=` | Error rate + p95 over a trailing window. |
-| `POST /api/v1/events` | Publish one event. |
-| `POST /api/v1/events/batch` | Publish many. |
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"dependency_removed","event_id":"e-2","timestamp":"2026-05-10T12:00:01Z","source":"checkout","target":"payments"}'
+```
 
-Errors come back as `{"error": "...", "message": "...", "service": "..."}` — never a stack trace.
+**`service_metadata`** — sets free-form attributes on a service. `team` / `tier` / `region` are recognized columns.
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"service_metadata","event_id":"e-3","timestamp":"2026-05-10T12:00:02Z","service":"payments","attributes":{"team":"billing","tier":"tier-0","region":"us-east-1"}}'
+```
+
+**`heartbeat`** — stamps `last_heartbeat_ts`.
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"heartbeat","event_id":"e-4","timestamp":"2026-05-10T12:00:03Z","service":"checkout"}'
+```
+
+**Batch** — same payloads as a JSON array; returns `{submitted, accepted, rejected}`. `503` if a partition's queue is full (caller retries the unaccepted suffix).
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/events/batch \
+  -H 'Content-Type: application/json' \
+  -d '[
+    {"type":"dependency_observed","event_id":"b-1","timestamp":"2026-05-10T12:00:00Z","source":"a","target":"b","latency_ms":10,"status":"ok"},
+    {"type":"dependency_observed","event_id":"b-2","timestamp":"2026-05-10T12:00:01Z","source":"b","target":"c","latency_ms":15,"status":"ok"}
+  ]'
+# {"submitted":2,"accepted":2,"rejected":0}
+```
+
+### Querying the API
+
+**Reachable (blast radius)** — every service downstream of `{service}`, each with the BFS path.
+
+```bash
+curl -sS http://localhost:8080/api/v1/graph/reachable/checkout | jq .
+```
+```json
+{
+  "service": "checkout",
+  "reachable": [
+    {"id": "payments",   "path": ["checkout", "payments"]},
+    {"id": "db-primary", "path": ["checkout", "payments", "db-primary"]}
+  ]
+}
+```
+
+**Dependents (reverse reachability)** — services that transitively depend on `{service}`. Same shape as reachable; paths read in the call direction toward the queried service.
+
+```bash
+curl -sS http://localhost:8080/api/v1/graph/dependents/db-primary | jq .
+```
+
+**Shortest path** — lowest total rolling-avg latency from `source` to `target` (Dijkstra). `found: false` with empty path means both endpoints exist but no directed path connects them.
+
+```bash
+curl -sS 'http://localhost:8080/api/v1/graph/shortest-path?source=checkout&target=db-primary' | jq .
+```
+```json
+{
+  "source": "checkout",
+  "target": "db-primary",
+  "found": true,
+  "path": ["checkout", "payments", "db-primary"],
+  "totalLatencyMs": 27.4
+}
+```
+
+**Critical services** — top-k by `inDegree(v) × outDegree(v)`. Ties broken by id (lex).
+
+```bash
+curl -sS 'http://localhost:8080/api/v1/graph/critical-services?k=5' | jq .
+```
+```json
+{
+  "k": 5,
+  "services": [
+    {"id": "db-primary",   "score": 84.0, "inDegree": 12, "outDegree": 7},
+    {"id": "auth-service", "score": 50.0, "inDegree": 10, "outDegree": 5}
+  ]
+}
+```
+
+**Cycles** — every elementary cycle currently in the graph, sorted by length then lex. Self-loops emit `[v, v]`.
+
+```bash
+curl -sS http://localhost:8080/api/v1/graph/cycles | jq .
+```
+```json
+{
+  "cycles": [
+    ["a", "b", "a"],
+    ["a", "b", "c", "a"]
+  ]
+}
+```
+
+**Health** — error rate + p95 latency for `{service}` over a trailing window in seconds. `windowSeconds` defaults to `sda.health.window-seconds` (300). Asking for a window larger than the configured retention returns `400 invalid_request`.
+
+```bash
+curl -sS 'http://localhost:8080/api/v1/graph/health/payments?windowSeconds=300' | jq .
+```
+```json
+{
+  "service": "payments",
+  "windowSeconds": 300,
+  "sampleCount": 312,
+  "errorRate": 0.014,
+  "p95LatencyMs": 87
+}
+```
+
+### Errors
+
+Every error comes back as `{"error": "...", "message": "...", "service": "..."}` — never a stack trace.
 
 | HTTP | `error` | When |
 |---|---|---|
 | 404 | `service_not_found` | Service id not in the graph. |
 | 400 | `invalid_request` | Bad params (`k <= 0`, `windowSeconds > retention`, malformed JSON). |
 | 503 | `service_unavailable` | Queue partition full at ingest, or shutdown in progress. |
-
-### Event types
-
-| Type | Required (besides `event_id`/`timestamp`) | Effect |
-|---|---|---|
-| `dependency_observed` | `source`, `target`, `latency_ms`, `status` (`ok`/`error`/`timeout`) | Adds (or refreshes) edge `source → target` and contributes a sample. |
-| `dependency_removed` | `source`, `target` | Removes the edge if present. Tolerant to "edge unknown". |
-| `service_metadata` | `service`, `attributes` (`Map<String,String>`; `team`/`tier`/`region` recognized) | Updates that service's metadata. |
-| `heartbeat` | `service` | Stamps `last_heartbeat_ts`. |
-
----
-
-## (Optional) LLM tool access via MCP
-
-The `mcp/` folder ships a TypeScript MCP server that exposes the six read queries as tools an LLM client (Claude Desktop / Claude Code) can call. The compose stack already builds and runs it as the `sda-mcp` sidecar. Wire your client at `docker exec -i sda-mcp node /app/dist/index.js` (full snippets in [`mcp/README.md`](./mcp/README.md)).
-
-Once wired, you can ask Claude things like *"show me the paths from svc-01208"* and it'll call `reachable` for you and visualize the result:
-
-![Claude calling the SDA reachable query through MCP and rendering the dependency tree](./docs/mcp-debugging.png)
+| 500 | `internal_error` | Anything unhandled; full trace in the logs. |
 
 ---
 
