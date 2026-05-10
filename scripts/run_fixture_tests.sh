@@ -19,22 +19,8 @@ SERVER_PID=""
 
 # Optional first arg: fixture filter. Matches against either the test name
 # (e.g. "topology/02-diamond") or the fixture file path. Substring match.
-# If empty, run everything. The literal token "--new" runs only the
-# recently-added fixtures listed in NEW_TESTS below (temporary affordance —
-# remove once the new fixtures are no longer "new").
+# If empty, run everything.
 FILTER="${1:-}"
-
-# Tests added since the original 23-fixture suite. Used by `--new` mode.
-NEW_TESTS=(
-  "topology/13-tied-shortest-paths"
-  "topology/14-tied-criticality"
-  "metadata/01-incremental-merge"
-  "negative/01-malformed-json"
-  "negative/02-missing-required-field"
-  "negative/03-bad-status-enum"
-  "negative/04-unknown-event-type"
-  "negative/05-bad-timestamp"
-)
 
 start_app() {
   rm -rf "$WORKDIR/data"
@@ -109,13 +95,7 @@ check() {
 }
 
 run() {  # run NAME FIXTURE_FILE BLOCK
-  if [[ "$FILTER" == "--new" ]]; then
-    local match=0
-    for n in "${NEW_TESTS[@]}"; do
-      if [[ "$1" == *"$n"* ]]; then match=1; break; fi
-    done
-    (( match )) || return
-  elif [[ -n "$FILTER" && "$1" != *"$FILTER"* && "$2" != *"$FILTER"* ]]; then
+  if [[ -n "$FILTER" && "$1" != *"$FILTER"* && "$2" != *"$FILTER"* ]]; then
     return
   fi
   echo "=== $1 ==="
