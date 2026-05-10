@@ -1,0 +1,12 @@
+[
+  {"type": "dependency_observed", "event_id": "h2-01", "timestamp": "2026-05-10T11:59:50Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-02", "timestamp": "2026-05-10T11:59:51Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-03", "timestamp": "2026-05-10T11:59:52Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-04", "timestamp": "2026-05-10T11:59:53Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-05", "timestamp": "2026-05-10T11:59:54Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-06", "timestamp": "2026-05-10T11:59:55Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-07", "timestamp": "2026-05-10T11:59:56Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h2-08", "timestamp": "2026-05-10T11:59:57Z", "source": "s", "target": "t", "latency_ms": 100, "status": "error"},
+  {"type": "dependency_observed", "event_id": "h2-09", "timestamp": "2026-05-10T11:59:58Z", "source": "s", "target": "t", "latency_ms": 100, "status": "error"},
+  {"type": "dependency_observed", "event_id": "h2-10", "timestamp": "2026-05-10T11:59:59Z", "source": "s", "target": "t", "latency_ms": 100, "status": "timeout"}
+]

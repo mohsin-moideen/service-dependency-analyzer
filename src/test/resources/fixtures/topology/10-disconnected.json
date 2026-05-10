@@ -1,0 +1,6 @@
+[
+  {"type": "dependency_observed", "event_id": "dis-1", "timestamp": "2026-05-10T12:00:00Z", "source": "a", "target": "b", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dis-2", "timestamp": "2026-05-10T12:00:01Z", "source": "b", "target": "c", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dis-3", "timestamp": "2026-05-10T12:00:02Z", "source": "x", "target": "y", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dis-4", "timestamp": "2026-05-10T12:00:03Z", "source": "y", "target": "z", "latency_ms": 10, "status": "ok"}
+]

@@ -1,0 +1,22 @@
+[
+  {"type": "dependency_observed", "event_id": "h1-01", "timestamp": "2026-05-10T11:59:40Z", "source": "s", "target": "t", "latency_ms": 1,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-02", "timestamp": "2026-05-10T11:59:41Z", "source": "s", "target": "t", "latency_ms": 2,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-03", "timestamp": "2026-05-10T11:59:42Z", "source": "s", "target": "t", "latency_ms": 3,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-04", "timestamp": "2026-05-10T11:59:43Z", "source": "s", "target": "t", "latency_ms": 4,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-05", "timestamp": "2026-05-10T11:59:44Z", "source": "s", "target": "t", "latency_ms": 5,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-06", "timestamp": "2026-05-10T11:59:45Z", "source": "s", "target": "t", "latency_ms": 6,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-07", "timestamp": "2026-05-10T11:59:46Z", "source": "s", "target": "t", "latency_ms": 7,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-08", "timestamp": "2026-05-10T11:59:47Z", "source": "s", "target": "t", "latency_ms": 8,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-09", "timestamp": "2026-05-10T11:59:48Z", "source": "s", "target": "t", "latency_ms": 9,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-10", "timestamp": "2026-05-10T11:59:49Z", "source": "s", "target": "t", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-11", "timestamp": "2026-05-10T11:59:50Z", "source": "s", "target": "t", "latency_ms": 11, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-12", "timestamp": "2026-05-10T11:59:51Z", "source": "s", "target": "t", "latency_ms": 12, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-13", "timestamp": "2026-05-10T11:59:52Z", "source": "s", "target": "t", "latency_ms": 13, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-14", "timestamp": "2026-05-10T11:59:53Z", "source": "s", "target": "t", "latency_ms": 14, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-15", "timestamp": "2026-05-10T11:59:54Z", "source": "s", "target": "t", "latency_ms": 15, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-16", "timestamp": "2026-05-10T11:59:55Z", "source": "s", "target": "t", "latency_ms": 16, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-17", "timestamp": "2026-05-10T11:59:56Z", "source": "s", "target": "t", "latency_ms": 17, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-18", "timestamp": "2026-05-10T11:59:57Z", "source": "s", "target": "t", "latency_ms": 18, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-19", "timestamp": "2026-05-10T11:59:58Z", "source": "s", "target": "t", "latency_ms": 19, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h1-20", "timestamp": "2026-05-10T11:59:59Z", "source": "s", "target": "t", "latency_ms": 20, "status": "ok"}
+]

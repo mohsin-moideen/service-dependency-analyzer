@@ -1,0 +1,5 @@
+[
+  {"type": "service_metadata",    "event_id": "ooo-md-1", "timestamp": "2026-05-10T12:00:00Z", "service": "future-svc", "attributes": {"team": "ml", "tier": "tier-2", "region": "us-west-2"}},
+  {"type": "heartbeat",           "event_id": "ooo-md-2", "timestamp": "2026-05-10T12:00:01Z", "service": "future-svc"},
+  {"type": "dependency_observed", "event_id": "ooo-md-3", "timestamp": "2026-05-10T12:00:02Z", "source": "future-svc", "target": "users-db", "latency_ms": 10, "status": "ok"}
+]

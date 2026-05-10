@@ -1,0 +1,10 @@
+[
+  {"type": "dependency_observed", "event_id": "dag-1",  "timestamp": "2026-05-10T12:00:00Z", "source": "edge",        "target": "checkout-api", "latency_ms": 5,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-2",  "timestamp": "2026-05-10T12:00:01Z", "source": "edge",        "target": "orders-api",   "latency_ms": 7,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-3",  "timestamp": "2026-05-10T12:00:02Z", "source": "checkout-api","target": "payments",     "latency_ms": 12, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-4",  "timestamp": "2026-05-10T12:00:03Z", "source": "checkout-api","target": "inventory",    "latency_ms": 15, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-5",  "timestamp": "2026-05-10T12:00:04Z", "source": "orders-api",  "target": "payments",     "latency_ms": 11, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-6",  "timestamp": "2026-05-10T12:00:05Z", "source": "orders-api",  "target": "inventory",    "latency_ms": 14, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-7",  "timestamp": "2026-05-10T12:00:06Z", "source": "payments",    "target": "users-db",     "latency_ms": 9,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "dag-8",  "timestamp": "2026-05-10T12:00:07Z", "source": "inventory",   "target": "users-db",     "latency_ms": 10, "status": "ok"}
+]

@@ -1,0 +1,7 @@
+[
+  {"type": "dependency_observed", "event_id": "fin-1", "timestamp": "2026-05-10T12:00:00Z", "source": "checkout-api",  "target": "users-db", "latency_ms": 12, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "fin-2", "timestamp": "2026-05-10T12:00:01Z", "source": "orders-api",    "target": "users-db", "latency_ms": 14, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "fin-3", "timestamp": "2026-05-10T12:00:02Z", "source": "search-api",    "target": "users-db", "latency_ms": 11, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "fin-4", "timestamp": "2026-05-10T12:00:03Z", "source": "profile-api",   "target": "users-db", "latency_ms": 13, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "fin-5", "timestamp": "2026-05-10T12:00:04Z", "source": "recommend-api", "target": "users-db", "latency_ms": 15, "status": "ok"}
+]

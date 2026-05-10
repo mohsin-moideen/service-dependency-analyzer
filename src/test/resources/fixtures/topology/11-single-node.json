@@ -1,0 +1,4 @@
+[
+  {"type": "heartbeat",        "event_id": "sn-1", "timestamp": "2026-05-10T12:00:00Z", "service": "lonely-svc"},
+  {"type": "service_metadata", "event_id": "sn-2", "timestamp": "2026-05-10T12:00:01Z", "service": "lonely-svc", "attributes": {"team": "platform", "tier": "tier-3", "region": "us-east-1"}}
+]

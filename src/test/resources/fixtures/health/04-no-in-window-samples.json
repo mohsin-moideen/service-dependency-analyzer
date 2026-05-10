@@ -1,0 +1,5 @@
+[
+  {"type": "dependency_observed", "event_id": "h4-01", "timestamp": "2026-05-10T11:50:00Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h4-02", "timestamp": "2026-05-10T11:51:00Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "h4-03", "timestamp": "2026-05-10T11:52:00Z", "source": "s", "target": "t", "latency_ms": 100, "status": "ok"}
+]

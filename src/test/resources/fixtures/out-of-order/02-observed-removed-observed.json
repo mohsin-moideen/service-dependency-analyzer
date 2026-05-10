@@ -1,0 +1,5 @@
+[
+  {"type": "dependency_observed", "event_id": "ooo-orh-1", "timestamp": "2026-05-10T12:00:00Z", "source": "a", "target": "b", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_removed",  "event_id": "ooo-orh-2", "timestamp": "2026-05-10T12:00:01Z", "source": "a", "target": "b"},
+  {"type": "dependency_observed", "event_id": "ooo-orh-3", "timestamp": "2026-05-10T12:00:02Z", "source": "a", "target": "b", "latency_ms": 20, "status": "ok"}
+]

@@ -1,0 +1,7 @@
+[
+  {"type": "dependency_observed", "event_id": "ov-1", "timestamp": "2026-05-10T12:00:00Z", "source": "a", "target": "b", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "ov-2", "timestamp": "2026-05-10T12:00:01Z", "source": "b", "target": "c", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "ov-3", "timestamp": "2026-05-10T12:00:02Z", "source": "c", "target": "a", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "ov-4", "timestamp": "2026-05-10T12:00:03Z", "source": "b", "target": "d", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "ov-5", "timestamp": "2026-05-10T12:00:04Z", "source": "d", "target": "b", "latency_ms": 10, "status": "ok"}
+]
