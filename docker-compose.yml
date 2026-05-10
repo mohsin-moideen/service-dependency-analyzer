@@ -1,0 +1,22 @@
+services:
+  sda:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: service-dependency-analyzer:latest
+    container_name: sda
+    ports:
+      - "8080:8080"
+    volumes:
+      - sda-data:/app/data
+    environment:
+      # Override Spring properties via SPRING_* / SDA_* env vars (Spring relaxed binding).
+      # Default leaves the synthetic generator on so a fresh `docker compose up` produces
+      # a meaningful dataset, matching the bare-metal `./gradlew bootRun` experience.
+      SDA_EVENTS_GENERATOR_ENABLED: "true"
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75"
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  sda-data:
