@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: service-dependency-analyzer
+  datasource:
+    url: jdbc:sqlite:./data/graph.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      continue-on-error: false
+
+server:
+  port: 8080
+  shutdown: graceful
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+sda:
+  ingest:
+    producer-count: 2
+    consumer-count: 2
+    queue-capacity: 10000
+  health:
+    window-seconds: 300
+
+logging:
+  level:
+    com.groupon.sda: INFO
