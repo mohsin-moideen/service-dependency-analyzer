@@ -82,6 +82,23 @@ class ShortestPathTest {
     }
 
     @Test
+    void shortestPathDiamondMatchesFixture() {
+        // topology/02-diamond.json — a→b 10, a→c 50, b→d 10, c→d 5.
+        // Expected: a→b→d wins at weight 20 over a→c→d at 55.
+        ServiceGraph g = graph();
+        edge(g, "a", "b", 10);
+        edge(g, "a", "c", 50);
+        edge(g, "b", "d", 10);
+        edge(g, "c", "d", 5);
+
+        ShortestPath.Result r = ShortestPath.shortestPath(g, "a", "d");
+        assertThat(r).isNotNull();
+        assertThat(r.found()).isTrue();
+        assertThat(r.path()).containsExactly("a", "b", "d");
+        assertThat(r.totalLatencyMs()).isEqualTo(20.0);
+    }
+
+    @Test
     void shortestPathIgnoresReverseEdgeDirection() {
         // a <- b only; can't go a -> b
         ServiceGraph g = graph();

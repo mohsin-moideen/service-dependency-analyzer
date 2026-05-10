@@ -77,7 +77,8 @@ public class GraphRestoreRunner {
         var edgeRows = edges.findAll();
         for (EdgeRepository.EdgeRow row : edgeRows) {
             graph.upsertEdgeForRestore(row.source(), row.target(),
-                    row.rollingAvgLatencyMs(), row.sampleCount());
+                    row.rollingAvgLatencyMs(), row.sampleCount(),
+                    row.lastObservedTs());
         }
 
         Instant cutoff = clock.instant().minus(sampleAgeCap);

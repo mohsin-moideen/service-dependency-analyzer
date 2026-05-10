@@ -16,24 +16,30 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Cycles in the dependency graph, returned as one explicit cycle path per SCC.
+ * All elementary cycles in the dependency graph.
  *
  * <h2>Approach</h2>
  * <ol>
- *   <li>Run Tarjan's strongly-connected-components algorithm on the directed graph.
- *       Iterative — recursive Tarjan stack-overflows on long chains in dependency
- *       graphs that don't even feel that big.</li>
- *   <li>For each SCC of size {@code > 1}: pick any internal directed edge {@code u → v},
- *       BFS from {@code v} back to {@code u} within the SCC, return
- *       {@code [u, v, ..., u]}.</li>
- *   <li>For each SCC of size 1 with a self-loop ({@code v → v}): emit {@code [v, v]}.</li>
+ *   <li>Run iterative Tarjan's SCC algorithm (recursive Tarjan stack-overflows on long
+ *       chains in dependency graphs that aren't even unusually large).</li>
+ *   <li>For each SCC of size {@code > 1}, enumerate every elementary cycle by DFS:
+ *       from each vertex {@code v} in the SCC sorted lexicographically, walk the
+ *       subgraph induced by the SCC but <i>only consider neighbours whose id is
+ *       lex ≥ v</i>. Every elementary cycle has a unique lex-smallest vertex; the
+ *       constraint guarantees we discover each cycle exactly once at that vertex.</li>
+ *   <li>For each SCC of size 1 with a self-loop, emit {@code [v, v]}.</li>
  * </ol>
  *
- * <p>Multi-edge cycles are deliberately reported as one path per SCC, not as every
- * elementary cycle (Johnson's algorithm). The spec asks for "all dependency cycles
- * currently present" and for incident response that almost always means "is there a
- * cycle through service X, and what does it look like?" — one canonical example per
- * SCC suffices.
+ * <p>This is a simpler relative of Johnson's algorithm. Johnson's "remove vertex,
+ * recompute SCCs" outer loop is one way to ensure each elementary cycle is found
+ * exactly once; the lex-min constraint here is another way that's lighter to
+ * implement and equally correct on directed graphs. Worst-case complexity is the
+ * same as Johnson's — O((V+E)·(C+1)) where C is the number of elementary cycles —
+ * which can blow up on dense SCCs. Real dependency graphs have small, sparse
+ * cycles, so it's microseconds in practice.
+ *
+ * <p>Output is sorted: by cycle length ascending, then lexicographically by the
+ * cycle's content. Stable across runs.
  */
 public final class Cycles {
 
@@ -49,10 +55,6 @@ public final class Cycles {
 
     private static Result compute(Map<String, ServiceNode> nodes) {
         List<List<String>> sccs = tarjan(nodes);
-        // HashMap iteration in Tarjan gives non-deterministic SCC ordering. Sort by the
-        // smallest node id within each SCC so /graph/cycles is stable across calls.
-        sccs.sort(Comparator.comparing(scc ->
-                scc.stream().min(Comparator.naturalOrder()).orElse("")));
         List<List<String>> cycles = new ArrayList<>();
         for (List<String> scc : sccs) {
             if (scc.size() == 1) {
@@ -61,13 +63,75 @@ public final class Cycles {
                     cycles.add(List.of(v, v));
                 }
             } else {
-                List<String> cyc = extractCycleFromScc(scc, nodes);
-                if (cyc != null) {
-                    cycles.add(cyc);
-                }
+                cycles.addAll(enumerateElementaryCycles(scc, nodes));
             }
         }
+        // Stable ordering: by cycle length, then lex.
+        cycles.sort(Comparator
+                .comparingInt(List<String>::size)
+                .thenComparing(Cycles::lexCompare));
         return new Result(cycles);
+    }
+
+    private static int lexCompare(List<String> a, List<String> b) {
+        int n = Math.min(a.size(), b.size());
+        for (int i = 0; i < n; i++) {
+            int c = a.get(i).compareTo(b.get(i));
+            if (c != 0) return c;
+        }
+        return Integer.compare(a.size(), b.size());
+    }
+
+    // ---- Elementary cycle enumeration ----------------------------------------------
+
+    private static List<List<String>> enumerateElementaryCycles(List<String> sccNodes,
+                                                                Map<String, ServiceNode> nodes) {
+        List<String> sortedScc = new ArrayList<>(sccNodes);
+        Collections.sort(sortedScc);
+        Set<String> sccSet = new HashSet<>(sccNodes);
+        List<List<String>> cycles = new ArrayList<>();
+
+        for (String start : sortedScc) {
+            // path stack holds the current DFS path with `start` at the bottom.
+            Deque<String> path = new ArrayDeque<>();
+            Set<String> onPath = new HashSet<>();
+            path.push(start);
+            onPath.add(start);
+            dfsFromMin(start, nodes, sccSet, path, onPath, cycles);
+            path.pop();
+            onPath.remove(start);
+        }
+        return cycles;
+    }
+
+    private static void dfsFromMin(String start,
+                                   Map<String, ServiceNode> nodes,
+                                   Set<String> sccSet,
+                                   Deque<String> path,
+                                   Set<String> onPath,
+                                   List<List<String>> cycles) {
+        String current = path.peek();
+        // Sort neighbours for determinism in cycle output.
+        List<String> outNeighbors = new ArrayList<>(nodes.get(current).outgoingView().keySet());
+        Collections.sort(outNeighbors);
+        for (String next : outNeighbors) {
+            if (!sccSet.contains(next)) continue;
+            if (next.compareTo(start) < 0) continue;     // lex constraint
+            if (next.equals(start)) {
+                // Cycle closed back to start.
+                List<String> cycle = new ArrayList<>(path.size() + 1);
+                Iterator<String> it = path.descendingIterator();
+                while (it.hasNext()) cycle.add(it.next());
+                cycle.add(start);
+                cycles.add(cycle);
+            } else if (!onPath.contains(next)) {
+                path.push(next);
+                onPath.add(next);
+                dfsFromMin(start, nodes, sccSet, path, onPath, cycles);
+                path.pop();
+                onPath.remove(next);
+            }
+        }
     }
 
     // ---- Tarjan's SCC, iterative ---------------------------------------------------
@@ -87,11 +151,10 @@ public final class Cycles {
         return sccs;
     }
 
-    /** A frame in the simulated call stack. */
     private static final class Frame {
         final String v;
         final Iterator<String> neighbors;
-        String pendingChild;   // if non-null, we just returned from a recursive call to this child
+        String pendingChild;
 
         Frame(String v, Iterator<String> neighbors) {
             this.v = v;
@@ -117,14 +180,10 @@ public final class Cycles {
 
         while (!callStack.isEmpty()) {
             Frame top = callStack.peek();
-
-            // If we just returned from a recursive call, fold the child's lowlink in.
             if (top.pendingChild != null) {
                 lowlink.put(top.v, Math.min(lowlink.get(top.v), lowlink.get(top.pendingChild)));
                 top.pendingChild = null;
             }
-
-            // Walk neighbours.
             boolean recursed = false;
             while (top.neighbors.hasNext()) {
                 String w = top.neighbors.next();
@@ -143,8 +202,6 @@ public final class Cycles {
                 }
             }
             if (recursed) continue;
-
-            // No more neighbours — pop. If v is the root of an SCC, peel it off.
             if (lowlink.get(top.v).equals(index.get(top.v))) {
                 List<String> scc = new ArrayList<>();
                 String w;
@@ -157,66 +214,5 @@ public final class Cycles {
             }
             callStack.pop();
         }
-    }
-
-    // ---- Cycle extraction within one SCC --------------------------------------------
-
-    private static List<String> extractCycleFromScc(List<String> sccNodes,
-                                                    Map<String, ServiceNode> nodes) {
-        Set<String> sccSet = new HashSet<>(sccNodes);
-
-        // Sort the SCC nodes so the choice of "first internal edge" is stable across
-        // calls. Without this, hash-map iteration would pick differently per JVM run.
-        List<String> sortedNodes = new ArrayList<>(sccNodes);
-        Collections.sort(sortedNodes);
-
-        // Find the lex-smallest non-self-loop directed edge u -> v inside the SCC.
-        String u = null, v = null;
-        outer:
-        for (String n : sortedNodes) {
-            List<String> outgoing = new ArrayList<>(nodes.get(n).outgoingView().keySet());
-            Collections.sort(outgoing);
-            for (String t : outgoing) {
-                if (sccSet.contains(t) && !t.equals(n)) {
-                    u = n;
-                    v = t;
-                    break outer;
-                }
-            }
-        }
-        if (u == null) return null;   // can't happen for a real SCC of size > 1
-
-        // BFS from v back to u, restricted to the SCC. Visit neighbours in sorted
-        // order so the path reconstruction is also stable.
-        Map<String, String> parent = new HashMap<>();
-        parent.put(v, null);
-        Deque<String> queue = new ArrayDeque<>();
-        queue.add(v);
-        while (!queue.isEmpty()) {
-            String cur = queue.poll();
-            if (cur.equals(u)) break;
-            List<String> neighbours = new ArrayList<>(nodes.get(cur).outgoingView().keySet());
-            Collections.sort(neighbours);
-            for (String n : neighbours) {
-                if (!sccSet.contains(n)) continue;
-                if (parent.containsKey(n)) continue;
-                parent.put(n, cur);
-                queue.add(n);
-            }
-        }
-        if (!parent.containsKey(u)) return null;
-
-        // Reconstruct v -> ... -> u, then prepend u to close the cycle.
-        List<String> back = new ArrayList<>();
-        String cur = u;
-        while (cur != null) {
-            back.add(cur);
-            cur = parent.get(cur);
-        }
-        Collections.reverse(back);   // [v, ..., u]
-        List<String> cycle = new ArrayList<>(back.size() + 1);
-        cycle.add(u);
-        cycle.addAll(back);          // [u, v, ..., u]
-        return cycle;
     }
 }

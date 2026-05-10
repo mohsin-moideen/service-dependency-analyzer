@@ -94,17 +94,20 @@ public class EventConsumer {
             return;
         }
         if (!cache.tryClaim(event.eventId())) {
-            // Either another in-process consumer claimed it, or a future BF impl
-            // false-positive'd. Confirm against DB.
-            if (processedEvents.exists(event.eventId())) {
-                duplicatesViaCache.increment();
-                return;
-            }
-            log.debug("dedup cache reported duplicate for {} but DB disagrees; processing anyway",
-                    event.eventId());
+            // Another in-process consumer already claimed this id. With the exact
+            // InMemorySetCache, tryClaim==false is authoritative — the winner will
+            // commit (or already has). We skip without a DB round-trip.
+            //
+            // A future BloomFilterCache cannot use this code path as-is: a BF false
+            // positive on contains() would let us drop a fresh event. When that
+            // implementation lands, the consume() protocol needs to change (e.g.,
+            // BF only as a fast-path that gates a slow-path DB confirm).
+            duplicatesViaCache.increment();
+            return;
         }
 
-        // Restart confirmation: an event in DB but not yet in cache.
+        // We won the claim. Restart confirmation against the durable store: an id
+        // committed in a previous JVM run lives in DB but not in our (cold) cache.
         if (processedEvents.exists(event.eventId())) {
             duplicatesViaDb.increment();
             return;
@@ -119,23 +122,33 @@ public class EventConsumer {
             case DependencyObservedEvent o -> {
                 EdgeStats stats = graph.applyDependencyObserved(
                         o.source(), o.target(), o.timestamp(), o.latencyMs(), o.status());
+                if (stats == null) {
+                    // LWW rejected the event as stale (older than a tombstone or an
+                    // existing edge's lastObservedTs). Mark it as processed so
+                    // re-deliveries are deduped, but skip the data writes — there's
+                    // nothing to update.
+                    log.debug("ignoring stale observation {} for {}->{}",
+                            o.eventId(), o.source(), o.target());
+                    tx.executeWithoutResult(status ->
+                            processedEvents.insertIfAbsent(o.eventId(), clock.instant()));
+                    return;
+                }
                 tx.executeWithoutResult(status -> {
                     if (!processedEvents.insertIfAbsent(o.eventId(), clock.instant())) {
-                        // Belt-and-braces: tryClaim + exists() should have caught duplicates.
-                        // If we got here, something's off — rollback rather than half-write.
                         status.setRollbackOnly();
                         return;
                     }
                     services.ensure(o.source());
                     services.ensure(o.target());
                     edges.upsert(o.source(), o.target(),
-                            stats.rollingAvgLatencyMs(), stats.sampleCount());
+                            stats.rollingAvgLatencyMs(), stats.sampleCount(),
+                            o.timestamp());
                     edgeSamples.insert(o.source(), o.target(),
                             o.timestamp(), o.latencyMs(), o.status());
                 });
             }
             case DependencyRemovedEvent r -> {
-                graph.applyDependencyRemoved(r.source(), r.target());
+                graph.applyDependencyRemoved(r.source(), r.target(), r.timestamp());
                 tx.executeWithoutResult(status -> {
                     if (!processedEvents.insertIfAbsent(r.eventId(), clock.instant())) {
                         status.setRollbackOnly();

@@ -31,7 +31,7 @@ class GraphRestoreRunnerTest {
         services.upsertHeartbeat("checkout", T0);
         services.upsertMetadata("payments", "team-b", null, "us-east");
 
-        edges.upsert("checkout", "payments", 42.0, 100L);
+        edges.upsert("checkout", "payments", 42.0, 100L, T0);
 
         samples.insert("checkout", "payments", T0,                10, Status.ok);
         samples.insert("checkout", "payments", T0.plusSeconds(1), 20, Status.error);

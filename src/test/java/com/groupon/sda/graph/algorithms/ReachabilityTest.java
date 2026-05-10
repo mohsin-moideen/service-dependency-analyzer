@@ -95,16 +95,43 @@ class ReachabilityTest {
     }
 
     @Test
-    void reachableDoesNotLoopOnCycles() {
-        // a -> b -> c -> a
+    void reachableIncludesStartViaSelfLoop() {
+        // topology/05-self-loop: a → a. reachable(a) terminates and returns {a}.
+        ServiceGraph g = graph();
+        edge(g, "a", "a");
+
+        Reachability.Result r = Reachability.reachable(g, "a");
+        assertThat(r).isNotNull();
+        assertThat(r.reachable()).extracting("id").containsExactly("a");
+        // Path walks the self-edge.
+        assertThat(r.reachable().get(0).path()).containsExactly("a", "a");
+    }
+
+    @Test
+    void reachableIncludesStartViaTwoCycle() {
+        // topology/06-2-cycle: a ↔ b. reachable(a) = {a, b}.
+        ServiceGraph g = graph();
+        edge(g, "a", "b");
+        edge(g, "b", "a");
+
+        Reachability.Result r = Reachability.reachable(g, "a");
+        assertThat(r.reachable()).extracting("id").containsExactlyInAnyOrder("a", "b");
+        // b is depth-1 (path size 2), a is depth-2 (cycle path size 3) — closer first.
+        assertThat(r.reachable().get(0).id()).isEqualTo("b");
+        assertThat(r.reachable().get(1).id()).isEqualTo("a");
+    }
+
+    @Test
+    void reachableThreeCycleReturnsAllNodesIncludingStart() {
+        // a → b → c → a. reachable(a) = {a, b, c} per the cycle-safe semantics.
         ServiceGraph g = graph();
         edge(g, "a", "b");
         edge(g, "b", "c");
         edge(g, "c", "a");
 
         Reachability.Result r = Reachability.reachable(g, "a");
-        // 'a' itself isn't in the result; b and c are.
-        assertThat(r.reachable()).extracting("id").containsExactlyInAnyOrder("b", "c");
+        assertThat(r.reachable()).extracting("id")
+                .containsExactlyInAnyOrder("a", "b", "c");
     }
 
     @Test

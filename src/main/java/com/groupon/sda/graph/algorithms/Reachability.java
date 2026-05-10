@@ -19,13 +19,19 @@ import java.util.Set;
  * question (downstream); the "dependents" query is its mirror (upstream).
  *
  * <p>Each visited node is returned with one path — the one BFS happens to find first,
- * which is also a shortest-by-hop-count path because BFS explores level by level.
+ * which is a shortest-by-hop-count path because BFS explores level by level.
  *
  * <p>Path direction follows the call graph in both queries:
  * <ul>
  *   <li>{@code reachable(A)} returns paths {@code [A, ..., X]} — A calls ... calls X.</li>
  *   <li>{@code dependents(A)} returns paths {@code [X, ..., A]} — X calls ... calls A.</li>
  * </ul>
+ *
+ * <p><b>{@code start} is included in its own result iff there's a path of length ≥ 1
+ * back to it</b> — i.e., a self-loop or any cycle through {@code start}. The path in
+ * that case walks the loop ({@code [a, a]} for a self-loop, {@code [a, b, ..., a]} for
+ * longer cycles). This matches the spec's blast-radius semantics: a service whose
+ * failure can recursively affect itself is part of its own blast radius.
  *
  * <p>{@link Result#service()} matches the caller's {@code start} argument; if the start
  * node isn't in the graph the function returns {@code null}.
@@ -57,10 +63,14 @@ public final class Reachability {
         }
         // parent[X] = predecessor of X in the BFS — the node from which we *reached* X.
         Map<String, String> parent = new HashMap<>();
-        Set<String> visited = new HashSet<>();
+        // `reached` = nodes for which we've discovered a length-≥-1 path from start.
+        // Distinct from `discovered` (queue dedup) because we want start to land in
+        // `reached` only when an edge actually brings us back to it.
+        Set<String> reached = new HashSet<>();
+        Set<String> discovered = new HashSet<>();
         Deque<String> queue = new ArrayDeque<>();
         queue.add(start);
-        visited.add(start);
+        discovered.add(start);
 
         while (!queue.isEmpty()) {
             String current = queue.poll();
@@ -69,16 +79,17 @@ public final class Reachability {
                     ? node.incomingView()
                     : node.outgoingView().keySet();
             for (String n : neighbors) {
-                if (visited.add(n)) {
+                if (reached.add(n)) {
                     parent.put(n, current);
+                }
+                if (discovered.add(n)) {
                     queue.add(n);
                 }
             }
         }
 
-        List<ReachableNode> result = new ArrayList<>(visited.size() - 1);
-        for (String node : visited) {
-            if (node.equals(start)) continue;
+        List<ReachableNode> result = new ArrayList<>(reached.size());
+        for (String node : reached) {
             List<String> path = buildPath(node, parent, start, reverse);
             result.add(new ReachableNode(node, path));
         }
@@ -91,22 +102,35 @@ public final class Reachability {
     }
 
     /**
-     * Reconstruct the call-direction path for a visited node.
+     * Reconstruct the call-direction path for a reached node.
      *
-     * <p>For forward BFS from {@code start}: parent pointers walk back from {@code node}
-     * to {@code start}, so we reverse to get {@code [start, ..., node]}.
+     * <p>For nodes other than {@code start}: walk parent pointers until we hit
+     * {@code start}, then stop. Forward-direction paths get reversed so callers see
+     * {@code [start, ..., node]}.
      *
-     * <p>For reverse BFS from {@code start}: parent pointers also walk back from
-     * {@code node} to {@code start}, but the call direction in the original graph is
-     * {@code node -> ... -> start}, which is exactly the unreversed parent chain.
+     * <p>For {@code node == start} (self-loop or cycle case): walk one full loop —
+     * {@code start → parent[start] → ... → start}. Without the early termination on
+     * {@code start} the {@code while} loop would never exit because {@code parent[start]}
+     * eventually points back to {@code start}.
      */
     private static List<String> buildPath(String node, Map<String, String> parent,
                                           String start, boolean reverse) {
         List<String> path = new ArrayList<>();
-        String cur = node;
-        while (cur != null) {
-            path.add(cur);
-            cur = parent.get(cur);
+        if (node.equals(start)) {
+            path.add(start);
+            String cur = parent.get(start);
+            while (cur != null && !cur.equals(start)) {
+                path.add(cur);
+                cur = parent.get(cur);
+            }
+            path.add(start);   // close the cycle
+        } else {
+            String cur = node;
+            while (cur != null && !cur.equals(start)) {
+                path.add(cur);
+                cur = parent.get(cur);
+            }
+            if (cur != null) path.add(start);
         }
         if (!reverse) {
             Collections.reverse(path);

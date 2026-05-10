@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -38,18 +39,25 @@ public class EdgeRepository {
      * <i>highest</i> sample count seen, which is the latest in-memory state regardless
      * of commit order.
      */
-    public void upsert(String source, String target, double rollingAvgLatencyMs, long sampleCount) {
+    public void upsert(String source, String target, double rollingAvgLatencyMs,
+                       long sampleCount, Instant lastObservedTs) {
+        Long lastObservedMs = lastObservedTs == null ? null : lastObservedTs.toEpochMilli();
         jdbc.update("""
-                INSERT INTO edges(source, target, rolling_avg_latency_ms, sample_count)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO edges(source, target, rolling_avg_latency_ms, sample_count, last_observed_ts)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(source, target) DO UPDATE SET
                     rolling_avg_latency_ms = CASE
                         WHEN excluded.sample_count >= edges.sample_count
                             THEN excluded.rolling_avg_latency_ms
                         ELSE edges.rolling_avg_latency_ms
                     END,
-                    sample_count = MAX(edges.sample_count, excluded.sample_count)
-                """, source, target, rollingAvgLatencyMs, sampleCount);
+                    sample_count = MAX(edges.sample_count, excluded.sample_count),
+                    last_observed_ts = CASE
+                        WHEN excluded.last_observed_ts IS NULL THEN edges.last_observed_ts
+                        WHEN edges.last_observed_ts IS NULL THEN excluded.last_observed_ts
+                        ELSE MAX(edges.last_observed_ts, excluded.last_observed_ts)
+                    END
+                """, source, target, rollingAvgLatencyMs, sampleCount, lastObservedMs);
     }
 
     /** @return number of rows deleted (0 if the edge wasn't in the table) */
@@ -58,16 +66,23 @@ public class EdgeRepository {
     }
 
     public List<EdgeRow> findAll() {
-        return jdbc.query("SELECT source, target, rolling_avg_latency_ms, sample_count FROM edges",
+        return jdbc.query(
+                "SELECT source, target, rolling_avg_latency_ms, sample_count, last_observed_ts FROM edges",
                 ROW_MAPPER);
     }
 
-    public record EdgeRow(String source, String target, double rollingAvgLatencyMs, long sampleCount) {
+    public record EdgeRow(String source, String target, double rollingAvgLatencyMs,
+                          long sampleCount, Instant lastObservedTs) {
     }
 
-    private static final RowMapper<EdgeRow> ROW_MAPPER = (rs, rowNum) -> new EdgeRow(
-            rs.getString("source"),
-            rs.getString("target"),
-            rs.getDouble("rolling_avg_latency_ms"),
-            rs.getLong("sample_count"));
+    private static final RowMapper<EdgeRow> ROW_MAPPER = (rs, rowNum) -> {
+        long ts = rs.getLong("last_observed_ts");
+        Instant lastObserved = rs.wasNull() ? null : Instant.ofEpochMilli(ts);
+        return new EdgeRow(
+                rs.getString("source"),
+                rs.getString("target"),
+                rs.getDouble("rolling_avg_latency_ms"),
+                rs.getLong("sample_count"),
+                lastObserved);
+    };
 }

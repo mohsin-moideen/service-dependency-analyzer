@@ -45,6 +45,17 @@ import java.util.function.Function;
 public class ServiceGraph {
 
     private final Map<String, ServiceNode> nodes = new HashMap<>();
+    /**
+     * Tombstones for last-write-wins ordering: {@code tombstones[(s,t)] = removedTs}
+     * means the most recent {@code dependency_removed} for {@code s→t} was at
+     * {@code removedTs}. An incoming {@code dependency_observed} with a strictly
+     * older event-ts is rejected as stale.
+     *
+     * <p>In-memory only for the take-home. Lost on restart — a future production
+     * iteration would persist these in a {@code tombstones(source, target, removed_ts)}
+     * table so post-restart stale events are also rejected.
+     */
+    private final Map<EdgeKey, Instant> tombstones = new HashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private final int maxSamplesPerEdge;
@@ -52,6 +63,8 @@ public class ServiceGraph {
     private final Clock clock;
 
     private long droppedRemovalsForUnknownEdges = 0L;
+    private long droppedStaleObservations = 0L;
+    private long droppedStaleRemovals = 0L;
 
     public ServiceGraph(int maxSamplesPerEdge, Duration sampleAgeCap, Clock clock) {
         if (maxSamplesPerEdge <= 0) {
@@ -78,19 +91,41 @@ public class ServiceGraph {
     // ---------------------------------------------------------------------------------
 
     /**
-     * Apply a {@code dependency_observed} event: ensure both nodes exist, then either
-     * create the edge or update its rolling stats and append to its sample window.
+     * Apply a {@code dependency_observed} event with last-write-wins semantics.
      *
-     * @return the post-update rolling stats for the edge, so the caller can persist
-     *         them without taking an extra read lock. Always non-null.
+     * <ul>
+     *   <li>Rejected as stale (returns {@code null}) when a tombstone exists for
+     *       {@code (source, target)} with {@code removedTs > event.ts} — the edge
+     *       was removed at a strictly later event time.</li>
+     *   <li>Rejected as stale (returns {@code null}) when the edge already has a
+     *       {@code lastObservedTs > event.ts} — a newer observation has been
+     *       applied. Prevents two consumers reordering same-edge events from
+     *       producing wrong rolling stats.</li>
+     *   <li>Otherwise: ensure both nodes, create or update the edge, return the
+     *       post-update rolling stats.</li>
+     * </ul>
+     *
+     * @return rolling stats after the apply, or {@code null} if the event was rejected
+     *         as stale and nothing changed.
      */
     public EdgeStats applyDependencyObserved(String source, String target,
                                              Instant ts, int latencyMs, Status status) {
         lock.writeLock().lock();
         try {
+            EdgeKey key = new EdgeKey(source, target);
+            Instant tombstone = tombstones.get(key);
+            if (tombstone != null && tombstone.isAfter(ts)) {
+                droppedStaleObservations++;
+                return null;
+            }
             ServiceNode src = ensureNode(source);
             ServiceNode tgt = ensureNode(target);
             Edge edge = src.outgoingTo(target);
+            if (edge != null && edge.lastObservedTs() != null
+                    && edge.lastObservedTs().isAfter(ts)) {
+                droppedStaleObservations++;
+                return null;
+            }
             if (edge == null) {
                 edge = new Edge(source, target, maxSamplesPerEdge, sampleAgeCap, clock);
                 src.addOutgoing(edge);
@@ -104,15 +139,40 @@ public class ServiceGraph {
     }
 
     /**
-     * Apply a {@code dependency_removed} event. No-op when the edge or either endpoint
-     * is unknown — that's the assessment's "out-of-order tolerance" floor (see CLAUDE.md
-     * "REVISIT for absolute correctness").
+     * Apply a {@code dependency_removed} event at event time {@code ts}, with last-write
+     * -wins semantics:
+     *
+     * <ul>
+     *   <li>If the edge currently exists and its {@code lastObservedTs} is strictly
+     *       newer than {@code ts}, the removal is stale — we keep the edge.</li>
+     *   <li>Otherwise: remove the edge (if present) and stamp a tombstone at
+     *       {@code ts}. Tombstones are kept on the highest seen ts.</li>
+     * </ul>
+     *
+     * <p>Removing an unknown edge still updates the tombstone — a future stale
+     * observation can then be rejected. The {@code droppedRemovalsForUnknownEdges}
+     * counter still increments for observability.
      */
-    public void applyDependencyRemoved(String source, String target) {
+    public void applyDependencyRemoved(String source, String target, Instant ts) {
         lock.writeLock().lock();
         try {
+            EdgeKey key = new EdgeKey(source, target);
             ServiceNode src = nodes.get(source);
-            if (src == null || src.outgoingTo(target) == null) {
+            Edge edge = src != null ? src.outgoingTo(target) : null;
+
+            if (edge != null && edge.lastObservedTs() != null
+                    && edge.lastObservedTs().isAfter(ts)) {
+                droppedStaleRemovals++;
+                return;
+            }
+
+            // Update tombstone (newer-wins).
+            Instant existing = tombstones.get(key);
+            if (existing == null || ts.isAfter(existing)) {
+                tombstones.put(key, ts);
+            }
+
+            if (edge == null) {
                 droppedRemovalsForUnknownEdges++;
                 return;
             }
@@ -163,9 +223,12 @@ public class ServiceGraph {
      * Visible for the persistence layer's boot rehydration; reconstructs an edge from a row
      * in {@code edges}. Sample deque is populated separately via
      * {@link #restoreEdgeSample(String, String, com.groupon.sda.domain.graph.Sample)}.
+     *
+     * @param lastObservedTs may be {@code null} for legacy rows persisted before LWW landed
      */
     public Edge upsertEdgeForRestore(String source, String target,
-                                     double rollingAvgLatencyMs, long sampleCount) {
+                                     double rollingAvgLatencyMs, long sampleCount,
+                                     Instant lastObservedTs) {
         lock.writeLock().lock();
         try {
             ServiceNode src = ensureNode(source);
@@ -176,7 +239,7 @@ public class ServiceGraph {
                 src.addOutgoing(edge);
                 tgt.addIncoming(source);
             }
-            edge.restoreRollingStats(rollingAvgLatencyMs, sampleCount);
+            edge.restoreRollingStats(rollingAvgLatencyMs, sampleCount, lastObservedTs);
             return edge;
         } finally {
             lock.writeLock().unlock();
@@ -372,6 +435,30 @@ public class ServiceGraph {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /** LWW counter — observations rejected as stale (older than tombstone or lastObservedTs). */
+    public long droppedStaleObservations() {
+        lock.readLock().lock();
+        try {
+            return droppedStaleObservations;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /** LWW counter — removals rejected as stale (edge has a newer observation). */
+    public long droppedStaleRemovals() {
+        lock.readLock().lock();
+        try {
+            return droppedStaleRemovals;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /** Composite key for tombstones and other edge-keyed maps. */
+    public record EdgeKey(String source, String target) {
     }
 
     /**

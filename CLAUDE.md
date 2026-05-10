@@ -20,6 +20,35 @@ The repo is currently a **boilerplate**. Most modules are placeholders with TODO
 
 The Gradle wrapper is committed and uses Gradle 8.10. Java 21 is required; the foojay toolchain resolver (configured in `settings.gradle.kts`) will auto-provision a matching JDK on first build if none is found locally.
 
+## End-to-end fixture tests
+
+Hand-crafted JSON fixtures live in `src/test/resources/fixtures/` (topology, idempotency, out-of-order, health). Each file is a JSON array shaped for `POST /api/v1/events/batch`. The README in that directory spells out the expected query answers for every fixture.
+
+`scripts/run_fixture_tests.sh` is the harness:
+
+```bash
+./gradlew bootJar                                  # prerequisite
+bash scripts/run_fixture_tests.sh                  # run every fixture
+bash scripts/run_fixture_tests.sh topology         # filter (substring match on name or path)
+bash scripts/run_fixture_tests.sh topology/02-diamond
+bash scripts/run_fixture_tests.sh idempotency
+```
+
+For each matched fixture the script:
+
+1. Wipes `/tmp/sda_test/data/`, boots the bootJar with `--sda.events.generator.enabled=false` and `--sda.health.window-seconds=86400` so the synthetic generator stays out of the way and the queries can use a wide window.
+2. POSTs the fixture to `/api/v1/events/batch`.
+3. Hits the relevant query endpoints and diffs the JSON against the README's expected outcomes.
+4. Stops the server and frees port 8080 before the next fixture.
+
+Pre-flight: free port 8080 first (`lsof -i :8080`); a leftover `bootRun` will block bind and silently route the test queries to the wrong server. The script tries to pick up the project's foojay-installed JDK 21 from `~/.gradle/jdks/eclipse_adoptium-21-aarch64-os_x.2/...` — adjust the `JAVA` variable at the top of the script for a different install.
+
+### Resolved fixture divergences
+
+- ✅ `topology/05-self-loop` and `topology/06-2-cycle`: fixed by tracking `reached` (length-≥-1 nodes) separately from `discovered` (queue dedup) in `Reachability.bfs`, plus a special-case path build for the start-via-cycle case.
+- ✅ `topology/08-overlapping-cycles`: replaced one-cycle-per-SCC with elementary-cycle enumeration in `Cycles` (DFS from each vertex with a lex-min constraint). Spec wording "all dependency cycles" is now satisfied literally.
+- ✅ `out-of-order/02-observed-removed-observed`: implemented last-write-wins by event timestamp. `Edge.lastObservedTs` and an in-memory `tombstones: Map<EdgeKey, Instant>` on `ServiceGraph` reject stale observations and stale removals. The consumer marks rejected events as processed (so re-deliveries dedup) without writing data rows. `last_observed_ts` is persisted on the `edges` row so post-restart stale checks still work for surviving edges; tombstones for removed edges are intentionally in-memory only — a `tombstones` table is the production answer.
+
 ## Architecture decisions already made
 
 - **Language/runtime:** Java 21 + Spring Boot 3.3.x.
@@ -119,13 +148,16 @@ A single `ReentrantReadWriteLock` at the graph level. All mutations under `write
 
 For long-running queries (notably `critical_services` doing betweenness centrality, which is `O(V·E)`), the algorithm takes a structural snapshot under `readLock`, releases, then computes outside the lock. BFS / Dijkstra / cycle detection are fast enough to run inline under `readLock`.
 
-### Out-of-order tolerance — current policy: **simple no-op**
+### Out-of-order tolerance — last-write-wins by event timestamp
 
-- `dependency_removed` for an edge that doesn't exist → no-op + counter increment, no error.
-- `dependency_observed` always inserts/updates the edge with the event's stats.
-- We do **not** track per-edge tombstones or compare timestamps to reject stale events.
+- Each `Edge` tracks `lastObservedTs` — the event timestamp of the most recent observation applied. Persisted on the `edges` row as `last_observed_ts`.
+- `ServiceGraph` keeps an in-memory `tombstones: Map<EdgeKey, Instant>`. A `dependency_removed` event sets the tombstone for `(source, target)` to the higher of its `event.ts` and any existing tombstone.
+- `dependency_observed` is rejected as stale when (a) a tombstone exists with `removedTs > event.ts`, or (b) the existing edge has `lastObservedTs > event.ts`. Rejected events return `null` from the apply call; the consumer marks them `processed_events` (so re-deliveries dedup) but skips data-row writes.
+- `dependency_removed` is rejected as stale when the existing edge has `lastObservedTs > event.ts`. Otherwise it removes the edge and stamps the tombstone.
 
-> **REVISIT for absolute correctness.** Once the synthetic generator and tests land, validate that this policy passes the spec's correctness bar at test scale. If it doesn't, the next step is last-write-wins by timestamp with persisted tombstones (`edges.last_observed_ts`, `tombstones(source, target, removed_ts)`). See task #13.
+This makes per-edge ordering robust under multi-consumer reordering, fully satisfies the spec's "out-of-order tolerant" clause, and does not depend on arrival order matching event-time order.
+
+**Persistence boundary.** `last_observed_ts` survives restart on the `edges` table — surviving edges keep their staleness frontier. Tombstones for removed edges are intentionally in-memory only; a persistent `tombstones(source, target, removed_ts)` table is the production answer for surviving cross-restart stale events on already-deleted edges.
 
 ### Health window storage
 

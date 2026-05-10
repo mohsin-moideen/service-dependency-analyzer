@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS edges (
   target                  TEXT NOT NULL,
   rolling_avg_latency_ms  REAL,
   sample_count            INTEGER NOT NULL DEFAULT 0,
+  -- Event-time of the most recent observation applied. Used by LWW ordering checks
+  -- after a restart so stale events delivered post-boot are still rejected.
+  last_observed_ts        INTEGER,
   PRIMARY KEY (source, target)
 );
 

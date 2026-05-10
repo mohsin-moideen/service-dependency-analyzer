@@ -50,6 +50,13 @@ public final class Edge {
     private double rollingAvgLatencyMs;
     private long sampleCount;
 
+    /**
+     * The event-timestamp of the most recent observation that has been applied. Used by
+     * {@code ServiceGraph} for last-write-wins ordering checks. Distinct from the wall
+     * clock used for sample-deque eviction. {@code null} until the first observation.
+     */
+    private Instant lastObservedTs;
+
     private final Deque<Sample> recentSamples = new ArrayDeque<>();
 
     public Edge(String source, String target, int maxSamples, Duration ageCap, Clock clock) {
@@ -76,6 +83,10 @@ public final class Edge {
         return sampleCount;
     }
 
+    public Instant lastObservedTs() {
+        return lastObservedTs;
+    }
+
     /** Read-only iterable over the in-memory sample buffer. Must be consumed under the read lock. */
     public Iterable<Sample> recentSamplesView() {
         return Collections.unmodifiableCollection(recentSamples);
@@ -89,6 +100,10 @@ public final class Edge {
         // Incremental running average: avg_n = avg_{n-1} + (x_n - avg_{n-1}) / n
         sampleCount++;
         rollingAvgLatencyMs += (latencyMs - rollingAvgLatencyMs) / sampleCount;
+
+        if (lastObservedTs == null || ts.isAfter(lastObservedTs)) {
+            lastObservedTs = ts;
+        }
 
         recentSamples.addLast(new Sample(ts, latencyMs, status));
         while (recentSamples.size() > maxSamples) {
@@ -109,9 +124,10 @@ public final class Edge {
     }
 
     /** Used by the persistence layer to restore rolling stats on boot. */
-    public void restoreRollingStats(double avgLatencyMs, long sampleCount) {
+    public void restoreRollingStats(double avgLatencyMs, long sampleCount, Instant lastObservedTs) {
         this.rollingAvgLatencyMs = avgLatencyMs;
         this.sampleCount = sampleCount;
+        this.lastObservedTs = lastObservedTs;
     }
 
     /**

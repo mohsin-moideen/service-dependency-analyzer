@@ -117,11 +117,13 @@ class CyclesTest {
     }
 
     @Test
-    void cyclePathPickIsDeterministicWithinScc() {
-        // Two valid cycle paths exist for the SCC {a,b,c} with edges
-        //   a->b, b->c, c->a, b->a (back-edge).
-        // The lex-smallest internal edge is a->b, so the chosen cycle should start
-        // [a, b, ...]. Without sorting, hash order would pick non-deterministically.
+    void cycleEnumerationOrderIsDeterministicWithinScc() {
+        // SCC {a,b,c} with edges a->b, b->c, c->a, b->a contains two elementary
+        // cycles: [a,b,a] and [a,b,c,a]. The new contract enumerates both; this
+        // test pins the output ORDER (shorter first, lex-asc within length) so the
+        // /graph/cycles endpoint is stable across calls when the graph hasn't
+        // changed. Without sorting in the algorithm, hash-map order would let the
+        // pair come back in either order.
         ServiceGraph g = graph();
         edge(g, "a", "b");
         edge(g, "b", "c");
@@ -129,23 +131,45 @@ class CyclesTest {
         edge(g, "b", "a");
 
         Cycles.Result r = Cycles.cycles(g);
-        assertThat(r.cycles()).hasSize(1);
-        assertThat(r.cycles().get(0).get(0)).isEqualTo("a");
-        assertThat(r.cycles().get(0).get(1)).isEqualTo("b");
-        assertThat(r.cycles().get(0).get(r.cycles().get(0).size() - 1)).isEqualTo("a");
+        assertThat(r.cycles()).containsExactly(
+                List.of("a", "b", "a"),
+                List.of("a", "b", "c", "a"));
     }
 
     @Test
-    void singleSccCyclesReturnsOnePathPerScc() {
-        // Two cycles sharing one edge: a -> b -> c -> a, also b -> a (extra edge).
-        // Both elementary cycles share the SCC {a,b,c}, so one path is reported.
+    void singleSccProducesEveryElementaryCycle() {
+        // SCC {a, b, c} contains two elementary cycles:
+        //   - a → b → a   (via the b → a back-edge)
+        //   - a → b → c → a
+        // The new contract enumerates both.
         ServiceGraph g = graph();
         edge(g, "a", "b");
         edge(g, "b", "c");
         edge(g, "c", "a");
-        edge(g, "b", "a");   // extra back-edge — same SCC
+        edge(g, "b", "a");
 
         Cycles.Result r = Cycles.cycles(g);
-        assertThat(r.cycles()).hasSize(1);
+        assertThat(r.cycles()).hasSize(2);
+        // Sorted by length: 2-cycle [a,b,a] before 3-cycle [a,b,c,a].
+        assertThat(r.cycles().get(0)).containsExactly("a", "b", "a");
+        assertThat(r.cycles().get(1)).containsExactly("a", "b", "c", "a");
+    }
+
+    @Test
+    void overlappingCyclesFixtureFindsBothElementaryCycles() {
+        // topology/08-overlapping-cycles: 3-cycle a→b→c→a plus 2-cycle b↔d sharing b.
+        // All four nodes form one SCC, but two distinct elementary cycles must be found.
+        ServiceGraph g = graph();
+        edge(g, "a", "b");
+        edge(g, "b", "c");
+        edge(g, "c", "a");
+        edge(g, "b", "d");
+        edge(g, "d", "b");
+
+        Cycles.Result r = Cycles.cycles(g);
+        assertThat(r.cycles()).hasSize(2);
+        // Sort: by length, then lex. [b,d,b] (len 3) before [a,b,c,a] (len 4).
+        assertThat(r.cycles().get(0)).containsExactly("b", "d", "b");
+        assertThat(r.cycles().get(1)).containsExactly("a", "b", "c", "a");
     }
 }

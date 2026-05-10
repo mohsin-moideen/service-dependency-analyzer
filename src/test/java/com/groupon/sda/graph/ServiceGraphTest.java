@@ -59,7 +59,7 @@ class ServiceGraphTest {
     void dependencyRemovedClearsEdgeAndIncomingSet() {
         ServiceGraph g = newGraph();
         g.applyDependencyObserved("a", "b", T0, 10, Status.ok);
-        g.applyDependencyRemoved("a", "b");
+        g.applyDependencyRemoved("a", "b", T0.plusSeconds(1));
 
         assertThat(g.hasNode("a")).isTrue();
         assertThat(g.hasNode("b")).isTrue();
@@ -73,8 +73,8 @@ class ServiceGraphTest {
     @Test
     void removalOfUnknownEdgeIsCountedNoOp() {
         ServiceGraph g = newGraph();
-        g.applyDependencyRemoved("ghost-source", "ghost-target");
-        g.applyDependencyRemoved("ghost-source", "ghost-target");
+        g.applyDependencyRemoved("ghost-source", "ghost-target", T0);
+        g.applyDependencyRemoved("ghost-source", "ghost-target", T0);
 
         assertThat(g.droppedRemovalsForUnknownEdges()).isEqualTo(2);
         assertThat(g.nodeCount()).isZero();
@@ -85,7 +85,7 @@ class ServiceGraphTest {
     void removalOfKnownSourceButUnknownEdgeIsAlsoCountedNoOp() {
         ServiceGraph g = newGraph();
         g.applyDependencyObserved("a", "b", T0, 10, Status.ok);
-        g.applyDependencyRemoved("a", "c");
+        g.applyDependencyRemoved("a", "c", T0.plusSeconds(1));
 
         assertThat(g.droppedRemovalsForUnknownEdges()).isEqualTo(1);
         assertThat(g.edgeCount()).isOne();
@@ -190,7 +190,7 @@ class ServiceGraphTest {
         ServiceGraph.Snapshot snap = g.structuralSnapshot();
 
         g.applyDependencyObserved("a", "c", T0, 20, Status.ok);
-        g.applyDependencyRemoved("a", "b");
+        g.applyDependencyRemoved("a", "b", T0.plusSeconds(1));
 
         assertThat(snap.outgoing().get("a")).containsOnlyKeys("b");
         assertThat(snap.outgoing().get("a")).doesNotContainKey("c");
@@ -262,11 +262,14 @@ class ServiceGraphTest {
                         // ghost removals (must be counted no-ops).
                         int wid = i % 4;
                         int idx = i % 50;
+                        // Use a far-future ts so removals dominate writers' observed events.
+                        Instant removeTs = T0.plusSeconds(86_400);
                         if ((i & 1) == 0) {
                             g.applyDependencyRemoved("w" + wid + "-s" + idx,
-                                    "w" + wid + "-t" + idx);
+                                    "w" + wid + "-t" + idx, removeTs);
                         } else {
-                            g.applyDependencyRemoved("ghost-" + rid + "-" + i, "ghost-tgt");
+                            g.applyDependencyRemoved("ghost-" + rid + "-" + i,
+                                    "ghost-tgt", removeTs);
                         }
                         i++;
                     }
@@ -323,6 +326,40 @@ class ServiceGraphTest {
                 .isNull();
         assertThat(snapshotReads.get()).isPositive();
         assertThat(healthReads.get()).isPositive();
+    }
+
+    @Test
+    void staleObservationAfterRemovalIsRejected() {
+        // Mirrors the in-memory side of out-of-order/02 fixture under arrival reorder:
+        // remove(T2) lands first, then observed(T1) where T1 < T2 — the observation
+        // must be rejected as stale (LWW).
+        ServiceGraph g = newGraph();
+        g.applyDependencyRemoved("a", "b", T0.plusSeconds(1));
+        var stats = g.applyDependencyObserved("a", "b", T0, 10, Status.ok);
+        assertThat(stats).as("stale observation should be rejected").isNull();
+        assertThat(g.edgeCount()).isZero();
+        assertThat(g.droppedStaleObservations()).isEqualTo(1);
+    }
+
+    @Test
+    void freshObservationAfterRemovalRecreatesEdge() {
+        // Same fixture, in-order arrival: remove(T1), then observed(T2 > T1).
+        ServiceGraph g = newGraph();
+        g.applyDependencyRemoved("a", "b", T0.plusSeconds(1));
+        var stats = g.applyDependencyObserved("a", "b", T0.plusSeconds(2), 20, Status.ok);
+        assertThat(stats).isNotNull();
+        assertThat(stats.sampleCount()).isEqualTo(1L);
+        assertThat(g.edgeCount()).isEqualTo(1);
+    }
+
+    @Test
+    void staleRemovalIsRejectedWhenEdgeHasNewerObservation() {
+        // Edge observed at T1+5, then a stale removed event at T1 arrives.
+        ServiceGraph g = newGraph();
+        g.applyDependencyObserved("a", "b", T0.plusSeconds(5), 10, Status.ok);
+        g.applyDependencyRemoved("a", "b", T0);   // stale
+        assertThat(g.edgeCount()).as("edge must survive a stale removal").isEqualTo(1);
+        assertThat(g.droppedStaleRemovals()).isEqualTo(1);
     }
 
     @Test
