@@ -325,6 +325,7 @@ In `application.yml` under `sda.*`:
 - `ingest.producer-count`, `ingest.consumer-count`, `ingest.queue-capacity`
 - `ingest.put-timeout-ms` *(optional, off by default)* — when set, switches the producer's `put` to a timed `offer`. On timeout the event is dropped with a structured WARN log and the `dropped_events` counter increments. Use only when you'd rather lose events than block; default behaviour is to block forever.
 - `ingest.dedup-cache-capacity` — sizing hint for `SeenEventsCache`. The `InMemorySetCache` ignores it; future `BloomFilterCache` will use it.
+- `ingest.close-queue-on-generator-exhaust` — when `true`, the producer watchdog closes the queue once the synthetic generator finishes (short CLI/test runs that should terminate when the seed dataset is consumed). Default `false`: the queue stays open after the generator exhausts so the HTTP ingest endpoint keeps accepting events — long-lived-server mode.
 - `health.window-seconds`, `health.max-samples-per-edge`
 - `events.generator.enabled` — master switch for the synthetic generator (default `true`)
 - `events.generator.service-count`, `events.generator.event-count`, `events.generator.hub-count`, `events.generator.cycles-to-inject`, `events.generator.error-rate`, `events.generator.duplicate-rate`, `events.generator.seed`
@@ -335,7 +336,7 @@ Startup order, controlled by Spring's lifecycle phases plus event-listener wirin
 
 1. Spring instantiates beans, runs `spring.sql.init` to apply `schema.sql`.
 2. `ContextRefreshedEvent` fires → `SqlitePragmaInitializer` (Order 0) flips WAL → `GraphRestoreRunner` (Order 10) reads `services` / `edges` / recent `edge_samples` into the in-memory graph.
-3. `SmartLifecycle.start()` runs in phase order: `ConsumerManager` (phase 500) spawns N virtual-thread consumers; then `ProducerManager` (phase 1000) spawns N virtual-thread producers and a watchdog that closes the queue when the synthetic generator exhausts.
+3. `SmartLifecycle.start()` runs in phase order: `ConsumerManager` (phase 500) spawns N virtual-thread consumers; then `ProducerManager` (phase 1000) spawns N virtual-thread producers and a watchdog that joins them all on completion. The watchdog only closes the queue if `sda.ingest.close-queue-on-generator-exhaust=true`; the default leaves the queue open so HTTP ingest keeps working after the synthetic seed dataset is fully consumed.
 
 Shutdown runs in reverse phase order: `ProducerManager.stop()` (phase 1000) closes the queue first (so any blocked `put` wakes with `QueueClosedException`) and joins producers; then `ConsumerManager.stop()` (phase 500) joins consumers as they drain the buffer and exit on `take() == null`. Spring's `server.shutdown: graceful` ensures HTTP requests in flight complete before the data-source closes.
 

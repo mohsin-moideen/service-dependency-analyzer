@@ -70,8 +70,12 @@ public class ProducerManager implements SmartLifecycle {
             Thread t = Thread.ofVirtual().name(name).start(r);
             threads.add(t);
         }
-        // Watchdog: when every producer thread exits (generator exhausted), close
-        // the queue so consumers see drained state and shut down cleanly.
+        // Watchdog: joins every producer thread, then either closes the queue (so the
+        // process can drain and exit — short CLI/test runs) or leaves it open (so the
+        // HTTP ingest endpoint can keep accepting events after the generator has seeded
+        // the graph — long-lived server). Controlled by sda.ingest.close-queue-on-
+        // generator-exhaust, default false.
+        boolean closeOnExhaust = props.closeQueueOnGeneratorExhaust();
         watchdog = Thread.ofVirtual().name("sda-producer-watchdog").start(() -> {
             for (Thread t : threads) {
                 try {
@@ -81,8 +85,12 @@ public class ProducerManager implements SmartLifecycle {
                     return;
                 }
             }
-            log.info("all producers complete; closing queue so consumers can drain");
-            queues.close();
+            if (closeOnExhaust) {
+                log.info("all producers complete; closing queue so consumers can drain");
+                queues.close();
+            } else {
+                log.info("all producers complete; queue left open for HTTP ingest");
+            }
         });
     }
 

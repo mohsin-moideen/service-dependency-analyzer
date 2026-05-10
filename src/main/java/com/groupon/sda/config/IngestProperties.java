@@ -15,6 +15,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param dedupCacheCapacity   sizing hint for the {@code SeenEventsCache} implementation
  *                             (ignored by the exact-set default; used by the future
  *                             bloom-filter implementation)
+ * @param closeQueueOnGeneratorExhaust when {@code true}, the producer watchdog closes
+ *                             the queue once every synthetic-generator producer thread
+ *                             exits — useful for short CLI/test runs that should
+ *                             terminate when the seed dataset is fully consumed. When
+ *                             {@code false} (default), the queue stays open so the HTTP
+ *                             ingest endpoint can keep accepting events after the
+ *                             synthetic generator has seeded the graph.
  */
 @ConfigurationProperties("sda.ingest")
 public record IngestProperties(
@@ -22,7 +29,8 @@ public record IngestProperties(
         int consumerCount,
         int queueCapacity,
         long putTimeoutMs,
-        int dedupCacheCapacity
+        int dedupCacheCapacity,
+        boolean closeQueueOnGeneratorExhaust
 ) {
 
     public IngestProperties {

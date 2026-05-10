@@ -39,6 +39,11 @@ sda:
     # Sizing hint for SeenEventsCache. The exact-set default ignores it; the future
     # BloomFilterCache uses it to choose bit-array size given a target FPR.
     dedup-cache-capacity: 200000
+    # When true, the producer watchdog closes the queue once the synthetic generator
+    # exhausts (short CLI/test runs that should terminate). When false (default), the
+    # queue stays open so HTTP ingest keeps working after the generator has seeded
+    # the graph — long-lived-server mode.
+    close-queue-on-generator-exhaust: false
   health:
     window-seconds: 300
     # Hard cap on the per-Edge in-memory sample deque. Protects heap if a single edge
