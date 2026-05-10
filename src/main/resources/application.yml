@@ -35,6 +35,10 @@ sda:
     dedup-cache-capacity: 200000
   health:
     window-seconds: 300
+    # Hard cap on the per-Edge in-memory sample deque. Protects heap if a single edge
+    # gets pathologically hot. The deque is also bounded by age (window-seconds), so the
+    # effective size is min(max-samples-per-edge, samples within window).
+    max-samples-per-edge: 1024
 
 logging:
   level:

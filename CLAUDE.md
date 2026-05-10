@@ -73,6 +73,57 @@ cache.add(event.id)
 
 In-memory graph mutation happens after the DB commit so in-memory state is always derivable from durable state — restart re-reads the DB into the graph and stays consistent.
 
+## Graph design
+
+### Representation
+
+Adjacency list with both directions maintained:
+
+```
+ServiceNode {
+    String id, team, tier, region
+    Instant lastHeartbeat
+    Map<String, Edge> outgoing   // target id -> Edge owning topology + stats
+    Set<String> incoming         // source ids only — edge object lives on the source
+}
+Edge {
+    String source, target
+    double rollingAvgLatencyMs
+    long sampleCount
+    ArrayDeque<Sample> recentSamples   // bounded by size + age
+}
+Sample(Instant ts, int latencyMs, Status status)
+```
+
+The graph itself is a `Map<String, ServiceNode> nodes` plus the lock. Reverse traversals (`dependents`) walk `incoming` ids and look up the source node — one extra map hop per step, in exchange for `O(1)` reverse-edge enumeration.
+
+### Concurrency
+
+A single `ReentrantReadWriteLock` at the graph level. All mutations under `writeLock`; most queries under `readLock`. Java's `ConcurrentHashMap` is **not** used inside — the lock provides happens-before for every read, and mixing both costs more than it gives.
+
+For long-running queries (notably `critical_services` doing betweenness centrality, which is `O(V·E)`), the algorithm takes a structural snapshot under `readLock`, releases, then computes outside the lock. BFS / Dijkstra / cycle detection are fast enough to run inline under `readLock`.
+
+### Out-of-order tolerance — current policy: **simple no-op**
+
+- `dependency_removed` for an edge that doesn't exist → no-op + counter increment, no error.
+- `dependency_observed` always inserts/updates the edge with the event's stats.
+- We do **not** track per-edge tombstones or compare timestamps to reject stale events.
+
+> **REVISIT for absolute correctness.** Once the synthetic generator and tests land, validate that this policy passes the spec's correctness bar at test scale. If it doesn't, the next step is last-write-wins by timestamp with persisted tombstones (`edges.last_observed_ts`, `tombstones(source, target, removed_ts)`). See task #13.
+
+### Health window storage
+
+Two-layer storage for `health(service, window)`:
+
+1. **In-memory bounded deque per `Edge`** — feeds the live query path. Bounded by both size (`MAX_SAMPLES`, default 1024) and age (`sda.health.window-seconds`). Self-evicting on each insert and on each query.
+2. **`edge_samples` table** — durable backing. Every `dependency_observed` writes a row; on boot, recent rows are read back into the deques so queries return correct answers before any new events arrive.
+
+`p95` is computed by sorting the in-window slice on each query — bounded N means it's microseconds.
+
+### Persistence flow
+
+Reaffirms the rule already set in the persistence section: every event apply is **DB write inside a transaction → in-memory mutation under `writeLock`**. In-memory state is always derivable from durable state, so a crash between commit and in-memory mutation converges on restart.
+
 ## Module layout
 
 All packages live under `com.groupon.sda`:
@@ -141,7 +192,6 @@ In `application.yml` under `sda.*`:
 
 ## What's still placeholder (build these out)
 
-- `graph.ServiceGraph` — empty class with TODOs.
 - `graph.algorithms.*` — not started; implement BFS reachable/dependents, Dijkstra (or similar) for shortest path, Tarjan/Johnson for cycles, betweenness or similar for `critical_services`.
 - `ingest.*` — producers/consumers and shutdown wiring.
 - `persistence.*` — SQLite repositories.
