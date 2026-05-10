@@ -20,6 +20,23 @@ package com.groupon.sda.ingest.dedup;
 public interface SeenEventsCache {
 
     /**
+     * Atomically claim processing rights for {@code eventId}.
+     *
+     * <p><b>Exact implementations</b> ({@link InMemorySetCache}): returns {@code true}
+     * iff this is the first time the id has been seen since JVM start. At most one
+     * caller wins per id.
+     *
+     * <p><b>Probabilistic implementations</b> (future {@code BloomFilterCache}): the
+     * boolean may be a false-negative-on-claim (i.e., a real new event reports
+     * {@code false}) due to a hash collision. Callers that lose the claim must
+     * confirm against the durable {@code processed_events} store before deciding
+     * the event is a duplicate.
+     *
+     * @return {@code true} if the caller now owns processing for this id.
+     */
+    boolean tryClaim(String eventId);
+
+    /**
      * @return {@code true} if {@code eventId} was probably added before
      *         (definitely added, in exact implementations).
      */

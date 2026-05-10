@@ -4,6 +4,12 @@ spring:
   datasource:
     url: jdbc:sqlite:./data/graph.db
     driver-class-name: org.sqlite.JDBC
+    hikari:
+      # Pool size is set programmatically in IngestConfig to consumer-count + 5 so the
+      # two values can never drift apart. WAL is persistent at the file level and is
+      # enabled in SqlitePragmaInitializer; synchronous=NORMAL is per-connection and
+      # is applied here on every checkout.
+      connection-init-sql: "PRAGMA synchronous=NORMAL"
   sql:
     init:
       mode: always
@@ -39,6 +45,19 @@ sda:
     # gets pathologically hot. The deque is also bounded by age (window-seconds), so the
     # effective size is min(max-samples-per-edge, samples within window).
     max-samples-per-edge: 1024
+  events:
+    generator:
+      # Master switch. When false, the synthetic generator is not wired; the system
+      # accepts events only via the HTTP ingest endpoint. Default: true so a fresh
+      # `./gradlew bootRun` produces a meaningful dataset.
+      enabled: true
+      service-count: 5000
+      event-count: 100000
+      hub-count: 8           # high fan-in services
+      cycles-to-inject: 3
+      error-rate: 0.05       # 5% non-OK status on dependency_observed
+      duplicate-rate: 0.01   # 1% exact-replay duplicates (drives the dedup path)
+      seed: 42
 
 logging:
   level:

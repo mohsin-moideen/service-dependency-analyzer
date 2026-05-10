@@ -56,22 +56,38 @@ Consumer flow per event:
 event = queue.take()
 if event == null: return                     // shutdown drained
 
-if cache.contains(event.id):
+if not cache.tryClaim(event.id):
     if processedEventsRepo.exists(event.id): // confirm against authoritative store
-        metrics.duplicates++
+        metrics.duplicatesViaCache++
         continue
-    // BF false positive — fall through
+    // BF false positive — fall through (unreachable for the exact-set impl)
+
+if processedEventsRepo.exists(event.id):     // restart case: id was in DB before this JVM
+    metrics.duplicatesViaDb++
+    continue
+
+stats = graph.apply(event)                   // in-memory mutation under writeLock,
+                                             // returns post-update rolling stats
 
 tx.begin()
-graphMutationRepo.apply(event)               // edges/services row writes
-processedEventsRepo.insert(event.id)
+processedEventsRepo.insertIfAbsent(event.id) // belt-and-braces against the gate
+graphMutationRepo.apply(event, stats)        // services/edges/edge_samples row writes
 tx.commit()
-
-graph.apply(event)                           // in-memory mutation, AFTER db commit
-cache.add(event.id)
 ```
 
-In-memory graph mutation happens after the DB commit so in-memory state is always derivable from durable state — restart re-reads the DB into the graph and stays consistent.
+**Order rationale.** In-memory mutation happens *first* (under `writeLock`) so the
+post-mutation rolling stats are available to the persistence transaction in a single
+round-trip. Concurrent observations on the same edge enter the write lock one at a
+time; the second sees the first's update and produces a larger `sample_count`.
+Their DB transactions can commit in any order — `EdgeRepository.upsert`'s
+`ON CONFLICT` clause keeps the row consistent with the higher-`sample_count` write.
+
+**Crash semantics.** If the JVM dies between the in-memory mutation and the DB
+commit, the `processed_events` row is missing. On the next boot, `GraphRestoreRunner`
+rebuilds the in-memory graph from `services` / `edges` / `edge_samples`; the lost
+event is *not* re-applied (the synthetic generator doesn't re-deliver, and our
+in-process queue isn't durable). This is accepted scope for the take-home — at-least-once
+delivery would require a durable upstream (Kafka) which the spec explicitly forbids.
 
 ## Graph design
 
@@ -163,9 +179,28 @@ Schema in `src/main/resources/schema.sql`:
 | `edge_samples(source, target, ts, latency_ms, status)` | Recent samples for `health()` window queries |
 | `processed_events(event_id, processed_ts)` | Idempotency set |
 
-Boot sequence: Spring opens the SQLite file, runs `schema.sql` (CREATE TABLE IF NOT EXISTS), then `persistence` repositories `SELECT` rows back into the in-memory graph. After that, every event commits its row updates inside a transaction — no replay needed because the DB is always current.
+Boot sequence:
 
-SQLite serializes writes; route all writes through a single writer thread (or accept short transactional contention) and rely on WAL mode for read concurrency.
+1. Spring opens the SQLite file at `./data/graph.db` and runs `schema.sql` (CREATE TABLE IF NOT EXISTS).
+2. `SqlitePragmaInitializer` (Order 0) flips the file to WAL mode and sets `synchronous=NORMAL` for the boot connection. WAL mode is persistent at the file level; subsequent connections inherit it. The Hikari `connection-init-sql` re-applies `synchronous=NORMAL` per-connection because that pragma is connection-scoped.
+3. `GraphRestoreRunner` (Order 10) reads `services`, `edges`, and recent `edge_samples` (within `sda.health.window-seconds`) and replays them into the in-memory `ServiceGraph` via the `upsertNodeForRestore` / `upsertEdgeForRestore` / `restoreEdgeSample` hooks.
+4. After that, every event apply commits its row updates inside a JDBC transaction — no event-log replay needed because the DB is always current.
+
+`PersistenceMaintenance` runs on `@Scheduled(fixedDelayString = "PT1M")` and prunes `edge_samples` older than the retention window so the table doesn't grow unbounded across long runs.
+
+SQLite serializes writes via its file lock; the Hikari pool is capped at `consumer-count + 5` (default 7) so we don't allocate more connections than the single-writer DB can usefully serve. WAL mode ensures readers (API request threads) don't block writers (consumers) and vice versa.
+
+## Critical-services metric
+
+`score(v) = inDegree(v) × outDegree(v)`. A service that is both heavily depended upon (high in-degree) and heavily depends on others (high out-degree) sits on the most call paths; removing it severs the most pairs of services from each other.
+
+This is a hybrid take-home choice over Brandes' betweenness centrality. Trade-offs:
+
+- **Cost**: O(V) here vs. O(V·E) for Brandes — at 10k services / 100k edges, betweenness is ~1B operations and runs in seconds; the hybrid runs in microseconds.
+- **Accuracy**: betweenness is the textbook answer to "which nodes lie on the most shortest paths between all pairs." This hybrid is a coarse approximation that doesn't account for global path structure. Hub services with many neighbours on each side score correctly; chokepoint services with few direct neighbours but high traffic flow score lower than they "should."
+- **Determinism**: ties are broken by service id (lexicographic) for stable output.
+
+The report calls out betweenness as the natural next step.
 
 ## API surface
 
@@ -188,13 +223,21 @@ In `application.yml` under `sda.*`:
 - `ingest.producer-count`, `ingest.consumer-count`, `ingest.queue-capacity`
 - `ingest.put-timeout-ms` *(optional, off by default)* — when set, switches the producer's `put` to a timed `offer`. On timeout the event is dropped with a structured WARN log and the `dropped_events` counter increments. Use only when you'd rather lose events than block; default behaviour is to block forever.
 - `ingest.dedup-cache-capacity` — sizing hint for `SeenEventsCache`. The `InMemorySetCache` ignores it; future `BloomFilterCache` will use it.
-- `health.window-seconds`
+- `health.window-seconds`, `health.max-samples-per-edge`
+- `events.generator.enabled` — master switch for the synthetic generator (default `true`)
+- `events.generator.service-count`, `events.generator.event-count`, `events.generator.hub-count`, `events.generator.cycles-to-inject`, `events.generator.error-rate`, `events.generator.duplicate-rate`, `events.generator.seed`
 
-## What's still placeholder (build these out)
+## Lifecycle
 
-- `graph.algorithms.*` — not started; implement BFS reachable/dependents, Dijkstra (or similar) for shortest path, Tarjan/Johnson for cycles, betweenness or similar for `critical_services`.
-- `ingest.*` — producers/consumers and shutdown wiring.
-- `persistence.*` — SQLite repositories.
-- `events.generator.EventGenerator` — synthetic dataset generator (~5–10k services, ~50–200k events, with cycles, fan-in hubs, error tail).
-- Tests — only a placeholder unit test exists. The spec calls out: idempotency, concurrent correctness, query correctness on hand-crafted graphs (incl. cycles), restart consistency.
-- Observability — structured logs and metrics (queue depth, events processed, query latency histograms) are encouraged.
+Startup order, controlled by Spring's lifecycle phases plus event-listener wiring:
+
+1. Spring instantiates beans, runs `spring.sql.init` to apply `schema.sql`.
+2. `ContextRefreshedEvent` fires → `SqlitePragmaInitializer` (Order 0) flips WAL → `GraphRestoreRunner` (Order 10) reads `services` / `edges` / recent `edge_samples` into the in-memory graph.
+3. `SmartLifecycle.start()` runs in phase order: `ConsumerManager` (phase 500) spawns N virtual-thread consumers; then `ProducerManager` (phase 1000) spawns N virtual-thread producers and a watchdog that closes the queue when the synthetic generator exhausts.
+
+Shutdown runs in reverse phase order: `ProducerManager.stop()` (phase 1000) closes the queue first (so any blocked `put` wakes with `QueueClosedException`) and joins producers; then `ConsumerManager.stop()` (phase 500) joins consumers as they drain the buffer and exit on `take() == null`. Spring's `server.shutdown: graceful` ensures HTTP requests in flight complete before the data-source closes.
+
+## What's still placeholder
+
+- Observability — structured logs are in; metrics (queue depth, events processed, query latency histograms) via Micrometer are an easy next step.
+- Test coverage — idempotency + concurrent correctness + algorithm correctness on hand-crafted graphs are covered. Restart-consistency at end-to-end scale isn't yet automated; manual via "run, stop, restart, query".

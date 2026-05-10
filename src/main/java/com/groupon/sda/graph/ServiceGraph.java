@@ -2,6 +2,7 @@ package com.groupon.sda.graph;
 
 import com.groupon.sda.domain.event.DependencyObservedEvent.Status;
 import com.groupon.sda.domain.graph.Edge;
+import com.groupon.sda.domain.graph.EdgeStats;
 import com.groupon.sda.domain.graph.Sample;
 import com.groupon.sda.domain.graph.ServiceNode;
 
@@ -79,9 +80,12 @@ public class ServiceGraph {
     /**
      * Apply a {@code dependency_observed} event: ensure both nodes exist, then either
      * create the edge or update its rolling stats and append to its sample window.
+     *
+     * @return the post-update rolling stats for the edge, so the caller can persist
+     *         them without taking an extra read lock. Always non-null.
      */
-    public void applyDependencyObserved(String source, String target,
-                                        Instant ts, int latencyMs, Status status) {
+    public EdgeStats applyDependencyObserved(String source, String target,
+                                             Instant ts, int latencyMs, Status status) {
         lock.writeLock().lock();
         try {
             ServiceNode src = ensureNode(source);
@@ -93,6 +97,7 @@ public class ServiceGraph {
                 tgt.addIncoming(source);
             }
             edge.recordObservation(ts, latencyMs, status);
+            return new EdgeStats(edge.rollingAvgLatencyMs(), edge.sampleCount());
         } finally {
             lock.writeLock().unlock();
         }

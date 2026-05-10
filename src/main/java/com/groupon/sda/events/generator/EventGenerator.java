@@ -1,18 +1,26 @@
 package com.groupon.sda.events.generator;
 
+import com.groupon.sda.domain.event.Event;
+
 /**
- * Synthetic event generator for tests and load.
+ * Source of events for the producer threads. Thread-safe.
  *
- * The spec asks for ~5,000–10,000 services and ~50,000–200,000 events with realistic shape:
- *   - A few high-fan-in services (databases, auth)
- *   - Mostly modest fan-out
- *   - At least a couple of cycles
- *   - A long tail of latencies
- *   - A non-trivial error rate
- *   - All event types interleaved, including removals and metadata updates
+ * <p>The default implementation, {@link SyntheticEventGenerator}, pre-builds a finite
+ * batch of events at startup with the shape the spec asks for (~5–10k services,
+ * ~50–200k events, hubs, cycles, error tail, mix of all event types). Producers call
+ * {@link #next()} until it returns {@code null}, signalling the batch is exhausted.
  *
- * Commit either the generator or a generated dataset to the repo.
+ * <p>An external HTTP-driven workload bypasses this entirely — it goes straight to
+ * the {@code EventIngestController} and into the queue.
  */
-public class EventGenerator {
-    // TODO: generation logic. Expose a CLI entry point or a Spring @Bean.
+public interface EventGenerator {
+
+    /**
+     * @return the next event, or {@code null} if the generator is exhausted.
+     *         Safe to call from many threads.
+     */
+    Event next();
+
+    /** Total number of events this generator will produce. Used for logging only. */
+    int totalEvents();
 }

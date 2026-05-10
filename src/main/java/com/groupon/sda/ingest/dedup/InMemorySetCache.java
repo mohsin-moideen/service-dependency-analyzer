@@ -20,6 +20,13 @@ public class InMemorySetCache implements SeenEventsCache {
     private final Set<String> seen = ConcurrentHashMap.newKeySet();
 
     @Override
+    public boolean tryClaim(String eventId) {
+        // ConcurrentHashMap.newKeySet().add is atomic: returns true iff the key was
+        // not already in the set. Exactly one concurrent caller per id wins.
+        return seen.add(eventId);
+    }
+
+    @Override
     public boolean contains(String eventId) {
         return seen.contains(eventId);
     }
