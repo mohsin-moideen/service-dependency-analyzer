@@ -1,0 +1,23 @@
+{
+  "name": "sda-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing Service Dependency Analyzer read queries as tools.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "sda-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3"
+  }
+}

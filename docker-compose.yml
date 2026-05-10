@@ -18,5 +18,22 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
 
+  sda-mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    image: sda-mcp:latest
+    container_name: sda-mcp
+    depends_on:
+      - sda
+    environment:
+      # In-network DNS resolves `sda` to the service container.
+      SDA_BASE_URL: "http://sda:8080"
+    # Keep stdin open so `docker exec -i sda-mcp node dist/index.js` can pipe MCP
+    # JSON-RPC traffic. The container itself runs no daemon — see mcp/Dockerfile.
+    stdin_open: true
+    tty: false
+    restart: unless-stopped
+
 volumes:
   sda-data:

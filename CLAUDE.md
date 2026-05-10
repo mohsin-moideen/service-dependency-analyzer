@@ -22,9 +22,24 @@ The Gradle wrapper is committed and uses Gradle 8.10. Java 21 is required; the f
 
 ## End-to-end fixture tests
 
-Hand-crafted JSON fixtures live in `src/test/resources/fixtures/` (topology, idempotency, out-of-order, health). Each file is a JSON array shaped for `POST /api/v1/events/batch`. The README in that directory spells out the expected query answers for every fixture.
+Hand-crafted JSON fixtures live in `src/test/resources/fixtures/`, organised by the property each one targets:
 
-`scripts/run_fixture_tests.sh` is the harness:
+| Subdir | Targets |
+|---|---|
+| `topology/` | Query correctness on known shapes — chain, diamond, fan-in/out hubs, self-loop, 2/3-cycle, overlapping cycles, pure DAG, disconnected, single-node, empty, plus tied shortest-paths and tied criticality scores for deterministic tiebreak validation |
+| `idempotency/` | Exact, cross-producer, and conflicting-payload duplicates |
+| `out-of-order/` | Stale removal before observation, observe-remove-observe round trip, metadata-before-edges, and the LWW pinning fixture (stale observation after a newer removal must be rejected) |
+| `health/` | Hand-counted p95, mixed statuses, sample on the window boundary, all-out-of-window |
+| `metadata/` | Incremental merge — three sequential metadata events each setting only one attribute, validates `COALESCE` semantics |
+| `concurrency/` | The hot-edge fixture (50 distinct ids on the same edge) used by the concurrent writers/readers test |
+| `restart/` | The rich mixed-stream (~35 events: hubs, planted cycle, removal, duplicate, late metadata) used by `RestartConsistencyTest` |
+| `negative/` | Intentionally invalid wire-format inputs for the API error-path tests — malformed JSON, missing field, bad enum, unknown event type, bad timestamp |
+
+Each fixture file is a JSON array shaped for `POST /api/v1/events/batch`. The README in `src/test/resources/fixtures/` spells out the expected query answers for every fixture and links each one to the test class that consumes it.
+
+### Two harnesses
+
+**1. `scripts/run_fixture_tests.sh`** — black-box, runs the bootJar and POSTs over HTTP:
 
 ```bash
 ./gradlew bootJar                                  # prerequisite
@@ -42,6 +57,23 @@ For each matched fixture the script:
 4. Stops the server and frees port 8080 before the next fixture.
 
 Pre-flight: free port 8080 first (`lsof -i :8080`); a leftover `bootRun` will block bind and silently route the test queries to the wrong server. The script tries to pick up the project's foojay-installed JDK 21 from `~/.gradle/jdks/eclipse_adoptium-21-aarch64-os_x.2/...` — adjust the `JAVA` variable at the top of the script for a different install.
+
+**2. JUnit-based fixture tests** — in-process, via `./gradlew test`. Two test-support classes glue fixtures to the rest of the system:
+
+- `testsupport.FixtureLoader` — Jackson-backed loader that reads `fixtures/<path>` from the classpath and returns `List<Event>` (or raw bytes for negative fixtures that intentionally fail to deserialize).
+- `testsupport.TestStack` — opens a full end-to-end stack (SQLite file, repos, `ServiceGraph`, `EventConsumer`) against an explicit DB path, and replays the same `services`/`edges`/`edge_samples` rebuild that `GraphRestoreRunner` runs on Spring boot. Closing and re-opening against the same path simulates a real restart cycle.
+
+Fixture-driven JUnit tests:
+
+| Test class | Spec invariant exercised |
+|---|---|
+| `ingest.consumer.EventConsumerIdempotencyTest` | Idempotency, including a 16-thread same-id race |
+| `restart.RestartConsistencyTest` | "After a restart, queries must return the same answers as before" — ingests `restart/01-rich-mixed-stream.json`, snapshots all six query results, closes the stack, re-opens against the same SQLite file, re-queries, asserts every answer matches |
+| `concurrency.HotEdgeConcurrencyTest` | Thread-safe graph: 8 writer threads each dispatch the full 50-event hot-edge fixture (every id contended by all 8) while 8 reader threads run `reachable`/`health` queries throughout. Asserts final `sample_count = 50`, `appliedCount = 50`, no torn reads, no deadlock |
+| `queue.BackpressureTest` | "Producers must block or shed deliberately, not silently drop." Two paths: BLOCK (slow consumer, asserts 0 dropped + putBlockedNanos > 0) and SHED (full queue + timed offer, asserts the dropped counter increments) |
+| `queue.GracefulShutdownTest` | Drain-after-close ordering, post-close `put`/`offer` rejection, parked-producer-during-close hand-off, consumer-loop-exits-cleanly |
+| `api.ApiErrorPathTest` | `@WebMvcTest` slice for `GraphQueryController` — asserts 404 `service_not_found`, 400 `invalid_request`, structured `ApiError` body, and explicitly that error responses contain no stack-trace strings |
+| `api.EventIngestApiErrorTest` | `@WebMvcTest` slice for `EventIngestController` — posts each `negative/*.json` fixture and asserts 400/503 with structured ApiError bodies; covers `QueueClosedException → 503` |
 
 ### Resolved fixture divergences
 
@@ -192,6 +224,16 @@ All packages live under `com.groupon.sda`:
 | `helpers` | Cross-cutting utilities |
 | `config` | Spring config, OpenAPI bean |
 
+Test-only packages under `src/test/java/com/groupon/sda`:
+
+| Package | Role |
+|---|---|
+| `testsupport` | `FixtureLoader` (classpath-resource loader for `fixtures/*.json`), `TestStack` (open an end-to-end stack against a given SQLite path with restore replayed), `MutableClock`, `PersistenceTestSupport` |
+| `restart` | `RestartConsistencyTest` |
+| `concurrency` | `HotEdgeConcurrencyTest` |
+| `queue` | Queue-level unit tests including `BackpressureTest` and `GracefulShutdownTest` |
+| `api` | MockMvc slice tests including `ApiErrorPathTest` and `EventIngestApiErrorTest` |
+
 ## Spec constraints (do not violate when implementing)
 
 - **No off-the-shelf queues** (Kafka, RabbitMQ, NATS, Redis Streams, SQS) — build the queue from primitives.
@@ -274,4 +316,4 @@ Shutdown runs in reverse phase order: `ProducerManager.stop()` (phase 1000) clos
 ## What's still placeholder
 
 - Observability — structured logs are in; metrics (queue depth, events processed, query latency histograms) via Micrometer are an easy next step.
-- Test coverage — idempotency + concurrent correctness + algorithm correctness on hand-crafted graphs are covered. Restart-consistency at end-to-end scale isn't yet automated; manual via "run, stop, restart, query".
+- Test coverage — idempotency, concurrent correctness on hot edges, algorithm correctness on hand-crafted graphs, restart consistency, backpressure (BLOCK + SHED), graceful shutdown, and API error paths are all covered by JUnit fixture-driven tests. Gaps: no scale benchmark for the "single-digit ms point queries on 10k services / 100k edges" claim, and no automated test for the `edge_samples` orphan-row issue (a sample written before a removal still rehydrates if the same edge is later re-observed across a restart) — both worth adding when time permits.

@@ -33,3 +33,23 @@ Knobs in `src/main/resources/application.yml`:
 ./gradlew test        # tests only
 ./gradlew bootJar     # runnable jar in build/libs/
 ```
+
+## Docker
+
+```bash
+docker compose up -d      # builds + starts the SDA service (and the MCP sidecar — see below)
+docker compose ps         # `sda` should report healthy on :8080
+docker compose down
+```
+
+## MCP server
+
+[`mcp/`](./mcp) contains a TypeScript MCP server that exposes the six read queries (`reachable`, `dependents`, `shortest_path`, `critical_services`, `cycles`, `health`) as tools an LLM client (Claude Desktop / Claude Code) can call. Read-only by design — event ingest is intentionally not exposed. Talks to a running SDA instance over HTTP (`SDA_BASE_URL`, default `http://localhost:8080`).
+
+Two ways to run it:
+
+**Local Node** — `cd mcp && npm install && npm run build`, then point your MCP client at `node /abs/path/to/mcp/dist/index.js`.
+
+**Sidecar in Docker Compose** — `docker compose up -d` brings up both `sda` and an `sda-mcp` container preloaded with the built server. Stdio MCP servers are spawned per-session by the client, so the sidecar stays idle until something attaches via `docker exec -i sda-mcp node /app/dist/index.js`. The sidecar reaches the service over the compose network at `http://sda:8080`.
+
+Full setup, env vars, and Claude Desktop / Code config snippets in [`mcp/README.md`](./mcp/README.md).
