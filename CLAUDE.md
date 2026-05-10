@@ -20,6 +20,16 @@ The repo is currently a **boilerplate**. Most modules are placeholders with TODO
 
 The Gradle wrapper is committed and uses Gradle 8.10. Java 21 is required; the foojay toolchain resolver (configured in `settings.gradle.kts`) will auto-provision a matching JDK on first build if none is found locally.
 
+Container path:
+
+```bash
+docker compose up -d         # builds + starts `sda` and the `sda-mcp` sidecar
+docker compose ps            # `sda` should report healthy on :8080
+docker compose down
+```
+
+The compose stack is two services: `sda` (the Spring Boot app, multi-stage `Dockerfile` at the repo root) and `sda-mcp` (the MCP sidecar — see `## MCP server` below). SQLite state lives on the `sda-data` named volume so it survives `down`.
+
 ## End-to-end fixture tests
 
 Hand-crafted JSON fixtures live in `src/test/resources/fixtures/`, organised by the property each one targets:
@@ -291,6 +301,22 @@ The report calls out betweenness as the natural next step.
 | GET  | `/api/v1/graph/cycles` | All current cycles |
 | GET  | `/api/v1/graph/health/{service}?windowSeconds=` | Error rate + p95 latency over window |
 | GET  | `/swagger-ui.html` | Interactive docs |
+
+## MCP server
+
+`mcp/` is a TypeScript MCP (Model Context Protocol) server that wraps the six read-only graph queries as tools an LLM client (Claude Desktop / Claude Code) can call. It lives outside the Gradle build — its own `package.json` / `tsconfig.json`, built with `npm run build` to `mcp/dist/index.js`.
+
+- **Scope:** read-only. Tools: `reachable`, `dependents`, `shortest_path`, `critical_services`, `cycles`, `health`. Event ingest is intentionally not exposed — keeps LLM-driven calls deterministic and side-effect-free.
+- **Transport:** stdio. The client spawns the binary per session and pipes JSON-RPC over stdin/stdout. There is no listening port; switching to streamable-HTTP would be a code change in `mcp/src/index.ts`, not a deployment one.
+- **Wiring:** thin HTTP client over `SDA_BASE_URL` (default `http://localhost:8080`, overridden to `http://sda:8080` inside the compose network). 4xx/5xx responses are surfaced to the LLM with the SDA `ApiError` envelope (`error`, `message`, `service`) plus the HTTP status, so the model can react to `service_not_found` vs `invalid_request`. Connection failures append a hint pointing at `SDA_BASE_URL`.
+- **Validation:** Zod schemas per tool. Argument errors return `isError: true` with a structured Zod message rather than throwing.
+
+Run modes:
+
+1. **Local Node.** `cd mcp && npm install && npm run build`, then point the client at `node /abs/path/to/mcp/dist/index.js` with `SDA_BASE_URL` pointing at a running `bootRun` instance.
+2. **Sidecar in compose.** `docker compose up -d` brings up `sda-mcp` (a tiny `node:22-alpine` image with the built server baked in). Stdio MCP servers don't run as daemons — the sidecar's `CMD` is `tail -f /dev/null` so the container stays alive, and the client attaches per-session via `docker exec -i sda-mcp node /app/dist/index.js`. Compose service has `stdin_open: true` for that exec path. The sidecar reaches the SDA over the compose network at `http://sda:8080` (set in `mcp/Dockerfile`).
+
+Client-config snippets (Claude Desktop, Claude Code) for both modes live in `mcp/README.md`.
 
 ## Configuration knobs
 
