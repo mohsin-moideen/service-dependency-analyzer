@@ -160,6 +160,14 @@ class ServiceGraphTest {
     }
 
     @Test
+    void healthRejectsNullNow() {
+        ServiceGraph g = newGraph();
+        assertThatThrownBy(() -> g.computeHealth("a", null, WINDOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("now");
+    }
+
+    @Test
     void selfLoopIsNotDoubleCountedInHealth() {
         // Bug #8 regression: A->A would otherwise be visited via outgoing AND via
         // incoming, doubling its sample count.
@@ -204,34 +212,103 @@ class ServiceGraphTest {
 
     @Test
     void concurrentReadsAndWritesDoNotTearOrDeadlock() throws Exception {
+        // Exercises every public mutator and every public read under contention.
+        // The lock semantics are uniform across all of them, so this should never
+        // surface a tear or a deadlock — but if a future change forgets to grab
+        // the right lock on a new method, this test catches it.
         ServiceGraph g = newGraph();
         int writers = 4;
-        int readers = 4;
+        int removers = 2;
+        int snapshotReaders = 2;
+        int healthReaders = 2;
         int writesPerThread = 500;
 
         ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
         CountDownLatch start = new CountDownLatch(1);
-        AtomicLong reads = new AtomicLong();
+        AtomicLong snapshotReads = new AtomicLong();
+        AtomicLong healthReads = new AtomicLong();
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
 
+        // Observers — produce edges over a fixed key space so removers and readers
+        // have something to find.
         for (int w = 0; w < writers; w++) {
             final int wid = w;
             pool.submit(() -> {
-                start.await();
-                for (int i = 0; i < writesPerThread; i++) {
-                    String src = "w" + wid + "-s" + (i % 50);
-                    String tgt = "w" + wid + "-t" + (i % 50);
-                    g.applyDependencyObserved(src, tgt, T0.plusSeconds(i), i, Status.ok);
+                try {
+                    start.await();
+                    for (int i = 0; i < writesPerThread; i++) {
+                        String src = "w" + wid + "-s" + (i % 50);
+                        String tgt = "w" + wid + "-t" + (i % 50);
+                        g.applyDependencyObserved(src, tgt, T0.plusSeconds(i), i, Status.ok);
+                    }
+                } catch (Throwable th) {
+                    failure.compareAndSet(null, th);
                 }
                 return null;
             });
         }
-        for (int r = 0; r < readers; r++) {
+        // Removers — most calls hit non-existent edges (counted as no-ops); some hit
+        // real ones the writers just inserted. Either way, no exceptions allowed.
+        for (int r = 0; r < removers; r++) {
+            final int rid = r;
             pool.submit(() -> {
-                start.await();
-                long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
-                while (System.nanoTime() < deadline) {
-                    g.structuralSnapshot();
-                    reads.incrementAndGet();
+                try {
+                    start.await();
+                    long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+                    int i = 0;
+                    while (System.nanoTime() < deadline) {
+                        // Mix targeted removals (edges the writers create) with
+                        // ghost removals (must be counted no-ops).
+                        int wid = i % 4;
+                        int idx = i % 50;
+                        if ((i & 1) == 0) {
+                            g.applyDependencyRemoved("w" + wid + "-s" + idx,
+                                    "w" + wid + "-t" + idx);
+                        } else {
+                            g.applyDependencyRemoved("ghost-" + rid + "-" + i, "ghost-tgt");
+                        }
+                        i++;
+                    }
+                } catch (Throwable th) {
+                    failure.compareAndSet(null, th);
+                }
+                return null;
+            });
+        }
+        // Snapshot readers — exercise the read-lock + iteration path.
+        for (int r = 0; r < snapshotReaders; r++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+                    while (System.nanoTime() < deadline) {
+                        g.structuralSnapshot();
+                        snapshotReads.incrementAndGet();
+                    }
+                } catch (Throwable th) {
+                    failure.compareAndSet(null, th);
+                }
+                return null;
+            });
+        }
+        // Health readers — exercise the read-lock + per-edge sample iteration path.
+        for (int r = 0; r < healthReaders; r++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+                    int i = 0;
+                    while (System.nanoTime() < deadline) {
+                        // Cycle across the writer-key space; many of these will be
+                        // unknown services (returns null), some will hit real nodes.
+                        String svc = "w" + (i % 4) + "-s" + (i % 50);
+                        g.computeHealth(svc, T0.plusSeconds(1000), WINDOW);
+                        healthReads.incrementAndGet();
+                        i++;
+                    }
+                } catch (Throwable th) {
+                    failure.compareAndSet(null, th);
                 }
                 return null;
             });
@@ -241,8 +318,11 @@ class ServiceGraphTest {
         pool.shutdown();
         assertThat(pool.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
 
-        assertThat(g.edgeCount()).isPositive();
-        assertThat(reads.get()).isPositive();
+        assertThat(failure.get())
+                .as("no thread should have thrown (CME, NPE, deadlock, etc.)")
+                .isNull();
+        assertThat(snapshotReads.get()).isPositive();
+        assertThat(healthReads.get()).isPositive();
     }
 
     @Test

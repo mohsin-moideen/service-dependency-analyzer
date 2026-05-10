@@ -287,6 +287,9 @@ public class ServiceGraph {
      * the service" — incident means undirected adjacency.
      */
     public Edge.HealthSnapshot computeHealth(String serviceId, Instant now, Duration window) {
+        if (now == null) {
+            throw new IllegalArgumentException("now must not be null");
+        }
         if (window == null || window.isNegative() || window.isZero()) {
             throw new IllegalArgumentException("window must be a positive duration");
         }

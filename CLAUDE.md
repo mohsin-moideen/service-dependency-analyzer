@@ -115,7 +115,7 @@ For long-running queries (notably `critical_services` doing betweenness centrali
 
 Two-layer storage for `health(service, window)`:
 
-1. **In-memory bounded deque per `Edge`** — feeds the live query path. Bounded by both size (`MAX_SAMPLES`, default 1024) and age (`sda.health.window-seconds`). Self-evicting on each insert and on each query.
+1. **In-memory bounded deque per `Edge`** — feeds the live query path. Bounded by both size (`MAX_SAMPLES`, default 1024) and age (`sda.health.window-seconds`). Self-evicting on the writer path (every `recordObservation`); reads filter in-place by timestamp without mutating, so multiple readers can hold the graph's read lock concurrently without tearing.
 2. **`edge_samples` table** — durable backing. Every `dependency_observed` writes a row; on boot, recent rows are read back into the deques so queries return correct answers before any new events arrive.
 
 `p95` is computed by sorting the in-window slice on each query — bounded N means it's microseconds.
