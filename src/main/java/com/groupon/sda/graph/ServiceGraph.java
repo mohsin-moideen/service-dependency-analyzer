@@ -93,17 +93,19 @@ public class ServiceGraph {
     /**
      * Apply a {@code dependency_observed} event with last-write-wins semantics.
      *
-     * <ul>
-     *   <li>Rejected as stale (returns {@code null}) when a tombstone exists for
-     *       {@code (source, target)} with {@code removedTs > event.ts} — the edge
-     *       was removed at a strictly later event time.</li>
-     *   <li>Rejected as stale (returns {@code null}) when the edge already has a
-     *       {@code lastObservedTs > event.ts} — a newer observation has been
-     *       applied. Prevents two consumers reordering same-edge events from
-     *       producing wrong rolling stats.</li>
-     *   <li>Otherwise: ensure both nodes, create or update the edge, return the
-     *       post-update rolling stats.</li>
-     * </ul>
+     * <p>Rejected as stale (returns {@code null}) only when a tombstone exists for
+     * {@code (source, target)} with {@code removedTs > event.ts} — i.e., the edge was
+     * removed at a strictly later event time, so this observation is from before the
+     * removal and shouldn't resurrect the edge.
+     *
+     * <p><b>Why no {@code lastObservedTs} check on observed events.</b> Multiple
+     * consumers can pull two same-edge observations in any order; if we rejected the
+     * one with the smaller {@code ts} as "stale", we'd silently drop a legitimate
+     * sample whenever scheduling reorders adjacent events. The rolling average is
+     * order-independent (just the mean), so accepting both produces the correct
+     * final state regardless of who wins the write lock first. The {@code Edge}
+     * itself still tracks {@code lastObservedTs = max(seen)}, used by
+     * {@link #applyDependencyRemoved} to reject stale removals.
      *
      * @return rolling stats after the apply, or {@code null} if the event was rejected
      *         as stale and nothing changed.
@@ -121,11 +123,6 @@ public class ServiceGraph {
             ServiceNode src = ensureNode(source);
             ServiceNode tgt = ensureNode(target);
             Edge edge = src.outgoingTo(target);
-            if (edge != null && edge.lastObservedTs() != null
-                    && edge.lastObservedTs().isAfter(ts)) {
-                droppedStaleObservations++;
-                return null;
-            }
             if (edge == null) {
                 edge = new Edge(source, target, maxSamplesPerEdge, sampleAgeCap, clock);
                 src.addOutgoing(edge);

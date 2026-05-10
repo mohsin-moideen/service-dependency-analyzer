@@ -3,7 +3,7 @@ package com.groupon.sda.ingest.producer;
 import com.groupon.sda.config.IngestProperties;
 import com.groupon.sda.domain.event.Event;
 import com.groupon.sda.events.generator.EventGenerator;
-import com.groupon.sda.queue.EventQueue;
+import com.groupon.sda.queue.PartitionedEventQueue;
 import com.groupon.sda.queue.QueueClosedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,13 +12,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * One producer thread's loop: pull from the {@link EventGenerator}, push onto the
- * {@link EventQueue}, exit when the generator returns {@code null} or the manager
- * signals stop.
+ * One producer thread's loop: pull from the {@link EventGenerator}, publish onto the
+ * {@link PartitionedEventQueue} (which routes to the right partition by the event's
+ * key), exit when the generator returns {@code null} or the manager signals stop.
  *
  * <p>Backpressure: when {@code sda.ingest.put-timeout-ms = 0} (default), uses the
- * blocking {@code put} so producers self-throttle to consumer speed. When set, uses
- * the timed {@code offer} and counts shed events.
+ * blocking {@link PartitionedEventQueue#publish} so producers self-throttle to
+ * consumer speed. When set, uses the timed {@link PartitionedEventQueue#tryPublish}
+ * and counts shed events.
  */
 public class EventProducerRunnable implements Runnable {
 
@@ -26,18 +27,18 @@ public class EventProducerRunnable implements Runnable {
 
     private final String name;
     private final EventGenerator generator;
-    private final EventQueue queue;
+    private final PartitionedEventQueue queues;
     private final IngestProperties props;
     private final AtomicBoolean running;
 
     public EventProducerRunnable(String name,
                                  EventGenerator generator,
-                                 EventQueue queue,
+                                 PartitionedEventQueue queues,
                                  IngestProperties props,
                                  AtomicBoolean running) {
         this.name = name;
         this.generator = generator;
-        this.queue = queue;
+        this.queues = queues;
         this.props = props;
         this.running = running;
     }
@@ -53,16 +54,16 @@ public class EventProducerRunnable implements Runnable {
                 if (e == null) break;   // generator exhausted
 
                 if (props.shedOnTimeout()) {
-                    boolean accepted = queue.offer(e, props.putTimeoutMs(), TimeUnit.MILLISECONDS);
+                    boolean accepted = queues.tryPublish(e, props.putTimeoutMs(), TimeUnit.MILLISECONDS);
                     if (accepted) {
                         published++;
                     } else {
                         dropped++;
-                        log.warn("producer {} shed event {} after {}ms (queue full)",
+                        log.warn("producer {} shed event {} after {}ms (partition full)",
                                 name, e.eventId(), props.putTimeoutMs());
                     }
                 } else {
-                    queue.put(e);
+                    queues.publish(e);
                     published++;
                 }
             }

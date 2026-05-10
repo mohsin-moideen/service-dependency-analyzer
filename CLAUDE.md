@@ -60,17 +60,18 @@ Pre-flight: free port 8080 first (`lsof -i :8080`); a leftover `bootRun` will bl
 
 ## Queue design
 
-The `queue.EventQueue` interface is a thin abstraction over a bounded MPMC pipe. The default implementation, `ArrayBlockingQueueAdapter`, wraps `java.util.concurrent.ArrayBlockingQueue` and adds:
+Two layers:
 
-- A `closed` flag (`volatile`) plus `close()` semantics — the JDK queue has no native "closed" state.
-- A drain protocol: once `close()` is called, `put`/`offer` reject new items with `QueueClosedException`; `take`/`poll` keep returning items until the buffer is empty, then return `null` to signal "closed and drained" so consumers can exit cleanly.
-- `QueueMetrics` snapshot (depth, totalEnqueued, totalDequeued, totalDropped, putBlockedNanos) for `/actuator/metrics`.
+- **`queue.EventQueue`** — interface for one bounded MPMC pipe. The default implementation, `ArrayBlockingQueueAdapter`, wraps `java.util.concurrent.ArrayBlockingQueue` and adds a `closed` flag, a drain protocol (`take()` returns `null` once closed-and-empty), and `QueueMetrics`.
+- **`queue.PartitionedEventQueue`** — holds `consumerCount` `EventQueue` instances. Producers and the HTTP ingest endpoint publish through `publish(event)` / `tryPublish(event, timeout)`, which hashes a partition key and routes to the corresponding queue. Each consumer owns one partition.
 
-**Backpressure policy: BLOCK (default).** Producers call `put(event)` which blocks on the underlying lock when the buffer is full. The producer thread parks via `Condition.await` until a consumer makes room. Throughput self-throttles to consumer speed; producers never silently drop. An optional `sda.ingest.put-timeout-ms` flips `put` to a timed `offer`, dropping with a logged WARN and a `dropped_events` counter — off by default because losing a `dependency_removed` corrupts the graph.
+**Why partitioning.** With a single shared queue and N consumers, two consumers can pull adjacent same-edge events and apply them in the wrong order. That doesn't break order-independent operations (rolling avg) but does mean `observed → removed → observed` flows become non-deterministic. Partitioning by `(source, target)` for edge events (and service id for service events) gives **per-edge serial ordering** — every event for a given edge goes through one consumer thread in arrival order. Cross-edge concurrency is preserved because different edges hash to different consumers.
 
-**The queue is dumb on purpose.** It does not know about events beyond the type parameter, does not dedup, does not persist. Idempotency and out-of-order tolerance live downstream (consumer + graph layer).
+**Backpressure policy: BLOCK (default).** `publish()` calls `put` on the chosen partition; producers self-throttle to consumer speed. A hot edge filling its own partition blocks producers writing to *that* partition while leaving others free — graceful degradation under skew. The HTTP ingest path uses `tryPublish` with a 1 s timeout so a full partition returns 503 instead of pinning a Tomcat thread. `sda.ingest.put-timeout-ms` flips internal producers to timed `tryPublish` for deliberate sheds.
 
-**Why `ArrayBlockingQueue` and not a hand-rolled ring buffer?** Same internals (`ReentrantLock` + 2 `Condition`s + circular array), well-tested. The `EventQueue` interface keeps the swap to a lock-free MPMC queue (e.g., a hand-built CAS-based ring) a one-line change if contention ever becomes the bottleneck — which it won't before the SQLite single-writer becomes the bottleneck first.
+**The queue is dumb on purpose.** It does not know about events beyond the type parameter (other than for partition key extraction), does not dedup, does not persist. Idempotency and out-of-order tolerance live downstream (consumer + graph layer).
+
+**Why `ArrayBlockingQueue` and not a hand-rolled ring buffer?** Same internals (`ReentrantLock` + 2 `Condition`s + circular array), well-tested. The `EventQueue` interface keeps the swap to a lock-free MPMC queue a one-line change if contention ever becomes the bottleneck — which it won't before the SQLite single-writer becomes the bottleneck first.
 
 ## Dedup design
 
@@ -148,16 +149,17 @@ A single `ReentrantReadWriteLock` at the graph level. All mutations under `write
 
 For long-running queries (notably `critical_services` doing betweenness centrality, which is `O(V·E)`), the algorithm takes a structural snapshot under `readLock`, releases, then computes outside the lock. BFS / Dijkstra / cycle detection are fast enough to run inline under `readLock`.
 
-### Out-of-order tolerance — last-write-wins by event timestamp
+### Out-of-order tolerance — last-write-wins, scoped to removal boundaries
 
-- Each `Edge` tracks `lastObservedTs` — the event timestamp of the most recent observation applied. Persisted on the `edges` row as `last_observed_ts`.
-- `ServiceGraph` keeps an in-memory `tombstones: Map<EdgeKey, Instant>`. A `dependency_removed` event sets the tombstone for `(source, target)` to the higher of its `event.ts` and any existing tombstone.
-- `dependency_observed` is rejected as stale when (a) a tombstone exists with `removedTs > event.ts`, or (b) the existing edge has `lastObservedTs > event.ts`. Rejected events return `null` from the apply call; the consumer marks them `processed_events` (so re-deliveries dedup) but skips data-row writes.
-- `dependency_removed` is rejected as stale when the existing edge has `lastObservedTs > event.ts`. Otherwise it removes the edge and stamps the tombstone.
+- Each `Edge` tracks `lastObservedTs` — `max` over the event timestamps of every observation applied. Persisted on the `edges` row as `last_observed_ts`.
+- `ServiceGraph` keeps an in-memory `tombstones: Map<EdgeKey, Instant>`. `dependency_removed` events set the tombstone for `(source, target)` to the higher of their `event.ts` and any existing tombstone.
+- `dependency_observed` is rejected as stale **only** when a tombstone exists with `removedTs > event.ts` — the edge was removed at a strictly later event time, so this observation predates the removal and must not resurrect the edge.
+- `dependency_observed` events on a live edge always land. Multiple consumers can pull two same-edge observations in any order; the rolling average is order-independent (it's just the mean), so accepting both produces the correct final state regardless of who wins the write lock. Rejecting the smaller-ts event would silently drop a legitimate sample whenever scheduling reorders adjacent events (fixture `health/01` regression).
+- `dependency_removed` is rejected as stale when the existing edge has `lastObservedTs > event.ts` — a stale removal must not undo a newer observation. Otherwise it removes the edge and stamps the tombstone.
 
-This makes per-edge ordering robust under multi-consumer reordering, fully satisfies the spec's "out-of-order tolerant" clause, and does not depend on arrival order matching event-time order.
+This makes the out-of-order policy spec-compliant (late removals are rejected; observations across a removal boundary are correctly disambiguated by the tombstone) without the false-rejection bug that a naive "every observation must be ≥ lastObservedTs" check would cause.
 
-**Persistence boundary.** `last_observed_ts` survives restart on the `edges` table — surviving edges keep their staleness frontier. Tombstones for removed edges are intentionally in-memory only; a persistent `tombstones(source, target, removed_ts)` table is the production answer for surviving cross-restart stale events on already-deleted edges.
+**Persistence boundary.** `last_observed_ts` survives restart on the `edges` table — surviving edges keep their staleness frontier so post-restart stale removals are still rejected. Tombstones for removed edges are intentionally in-memory only; a persistent `tombstones(source, target, removed_ts)` table is the production answer for surviving cross-restart stale observations on already-deleted edges.
 
 ### Health window storage
 

@@ -1,7 +1,7 @@
 package com.groupon.sda.api;
 
 import com.groupon.sda.domain.event.Event;
-import com.groupon.sda.queue.EventQueue;
+import com.groupon.sda.queue.PartitionedEventQueue;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -32,16 +32,16 @@ public class EventIngestController {
 
     private static final long INGEST_OFFER_TIMEOUT_MS = 1_000L;
 
-    private final EventQueue queue;
+    private final PartitionedEventQueue queues;
 
-    public EventIngestController(EventQueue queue) {
-        this.queue = queue;
+    public EventIngestController(PartitionedEventQueue queues) {
+        this.queues = queues;
     }
 
     @Operation(summary = "Publish one event")
     @PostMapping
     public ResponseEntity<Void> publish(@RequestBody Event event) throws InterruptedException {
-        boolean accepted = queue.offer(event, INGEST_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        boolean accepted = queues.tryPublish(event, INGEST_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         if (!accepted) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
@@ -53,7 +53,7 @@ public class EventIngestController {
     public ResponseEntity<BatchAck> publishBatch(@RequestBody List<Event> events) throws InterruptedException {
         int accepted = 0;
         for (Event e : events) {
-            if (queue.offer(e, INGEST_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (queues.tryPublish(e, INGEST_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 accepted++;
             } else {
                 // Stop on the first rejection to avoid amplifying backpressure;

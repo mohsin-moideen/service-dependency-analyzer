@@ -1,0 +1,452 @@
+[
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-000",
+    "timestamp": "2026-05-10T11:59:00Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-001",
+    "timestamp": "2026-05-10T11:59:01Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-002",
+    "timestamp": "2026-05-10T11:59:02Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-003",
+    "timestamp": "2026-05-10T11:59:03Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-004",
+    "timestamp": "2026-05-10T11:59:04Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-005",
+    "timestamp": "2026-05-10T11:59:05Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-006",
+    "timestamp": "2026-05-10T11:59:06Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-007",
+    "timestamp": "2026-05-10T11:59:07Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-008",
+    "timestamp": "2026-05-10T11:59:08Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-009",
+    "timestamp": "2026-05-10T11:59:09Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "error"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-010",
+    "timestamp": "2026-05-10T11:59:10Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-011",
+    "timestamp": "2026-05-10T11:59:11Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-012",
+    "timestamp": "2026-05-10T11:59:12Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-013",
+    "timestamp": "2026-05-10T11:59:13Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-014",
+    "timestamp": "2026-05-10T11:59:14Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-015",
+    "timestamp": "2026-05-10T11:59:15Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-016",
+    "timestamp": "2026-05-10T11:59:16Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-017",
+    "timestamp": "2026-05-10T11:59:17Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-018",
+    "timestamp": "2026-05-10T11:59:18Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-019",
+    "timestamp": "2026-05-10T11:59:19Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "error"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-020",
+    "timestamp": "2026-05-10T11:59:20Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-021",
+    "timestamp": "2026-05-10T11:59:21Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-022",
+    "timestamp": "2026-05-10T11:59:22Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-023",
+    "timestamp": "2026-05-10T11:59:23Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-024",
+    "timestamp": "2026-05-10T11:59:24Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-025",
+    "timestamp": "2026-05-10T11:59:25Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-026",
+    "timestamp": "2026-05-10T11:59:26Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-027",
+    "timestamp": "2026-05-10T11:59:27Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-028",
+    "timestamp": "2026-05-10T11:59:28Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-029",
+    "timestamp": "2026-05-10T11:59:29Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "error"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-030",
+    "timestamp": "2026-05-10T11:59:30Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-031",
+    "timestamp": "2026-05-10T11:59:31Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-032",
+    "timestamp": "2026-05-10T11:59:32Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-033",
+    "timestamp": "2026-05-10T11:59:33Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-034",
+    "timestamp": "2026-05-10T11:59:34Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-035",
+    "timestamp": "2026-05-10T11:59:35Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-036",
+    "timestamp": "2026-05-10T11:59:36Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-037",
+    "timestamp": "2026-05-10T11:59:37Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-038",
+    "timestamp": "2026-05-10T11:59:38Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-039",
+    "timestamp": "2026-05-10T11:59:39Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "error"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-040",
+    "timestamp": "2026-05-10T11:59:40Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-041",
+    "timestamp": "2026-05-10T11:59:41Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-042",
+    "timestamp": "2026-05-10T11:59:42Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-043",
+    "timestamp": "2026-05-10T11:59:43Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-044",
+    "timestamp": "2026-05-10T11:59:44Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-045",
+    "timestamp": "2026-05-10T11:59:45Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 10,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-046",
+    "timestamp": "2026-05-10T11:59:46Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 12,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-047",
+    "timestamp": "2026-05-10T11:59:47Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 14,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-048",
+    "timestamp": "2026-05-10T11:59:48Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 16,
+    "status": "ok"
+  },
+  {
+    "type": "dependency_observed",
+    "event_id": "hot-049",
+    "timestamp": "2026-05-10T11:59:49Z",
+    "source": "a",
+    "target": "b",
+    "latency_ms": 18,
+    "status": "error"
+  }
+]

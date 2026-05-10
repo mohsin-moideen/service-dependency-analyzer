@@ -1,0 +1,46 @@
+[
+  {"type": "service_metadata", "event_id": "rich-md-1", "timestamp": "2026-05-10T11:55:00Z", "service": "checkout-api",  "attributes": {"team": "commerce", "tier": "tier-1", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-2", "timestamp": "2026-05-10T11:55:00Z", "service": "orders-api",    "attributes": {"team": "commerce", "tier": "tier-1", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-3", "timestamp": "2026-05-10T11:55:00Z", "service": "search-api",    "attributes": {"team": "search",   "tier": "tier-1", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-4", "timestamp": "2026-05-10T11:55:00Z", "service": "profile-api",   "attributes": {"team": "identity", "tier": "tier-2", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-5", "timestamp": "2026-05-10T11:55:00Z", "service": "users-db",      "attributes": {"team": "platform", "tier": "tier-0", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-6", "timestamp": "2026-05-10T11:55:00Z", "service": "payments",      "attributes": {"team": "payments", "tier": "tier-1", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-7", "timestamp": "2026-05-10T11:55:00Z", "service": "inventory",     "attributes": {"team": "supply",   "tier": "tier-1", "region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "rich-md-8", "timestamp": "2026-05-10T11:55:00Z", "service": "auth",          "attributes": {"team": "identity", "tier": "tier-0", "region": "us-east-1"}},
+
+  {"type": "heartbeat", "event_id": "rich-hb-1", "timestamp": "2026-05-10T11:55:30Z", "service": "checkout-api"},
+  {"type": "heartbeat", "event_id": "rich-hb-2", "timestamp": "2026-05-10T11:55:30Z", "service": "orders-api"},
+  {"type": "heartbeat", "event_id": "rich-hb-3", "timestamp": "2026-05-10T11:55:30Z", "service": "users-db"},
+  {"type": "heartbeat", "event_id": "rich-hb-4", "timestamp": "2026-05-10T11:55:30Z", "service": "auth"},
+
+  {"type": "dependency_observed", "event_id": "rich-obs-01", "timestamp": "2026-05-10T11:56:00Z", "source": "auth",         "target": "users-db",     "latency_ms": 8,   "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-02", "timestamp": "2026-05-10T11:56:01Z", "source": "checkout-api", "target": "auth",         "latency_ms": 12,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-03", "timestamp": "2026-05-10T11:56:02Z", "source": "checkout-api", "target": "payments",     "latency_ms": 25,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-04", "timestamp": "2026-05-10T11:56:03Z", "source": "checkout-api", "target": "inventory",    "latency_ms": 18,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-05", "timestamp": "2026-05-10T11:56:04Z", "source": "orders-api",   "target": "auth",         "latency_ms": 11,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-06", "timestamp": "2026-05-10T11:56:05Z", "source": "orders-api",   "target": "payments",     "latency_ms": 22,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-07", "timestamp": "2026-05-10T11:56:06Z", "source": "orders-api",   "target": "inventory",    "latency_ms": 19,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-08", "timestamp": "2026-05-10T11:56:07Z", "source": "search-api",   "target": "auth",         "latency_ms": 9,   "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-09", "timestamp": "2026-05-10T11:56:08Z", "source": "profile-api",  "target": "auth",         "latency_ms": 13,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-10", "timestamp": "2026-05-10T11:56:09Z", "source": "payments",     "target": "users-db",     "latency_ms": 7,   "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-11", "timestamp": "2026-05-10T11:56:10Z", "source": "inventory",    "target": "users-db",     "latency_ms": 10,  "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-obs-12", "timestamp": "2026-05-10T11:56:11Z", "source": "profile-api",  "target": "users-db",     "latency_ms": 14,  "status": "ok"},
+
+  {"type": "dependency_observed", "event_id": "rich-cycle-1", "timestamp": "2026-05-10T11:56:30Z", "source": "orders-api",   "target": "checkout-api", "latency_ms": 16, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-cycle-2", "timestamp": "2026-05-10T11:56:31Z", "source": "checkout-api", "target": "orders-api",   "latency_ms": 21, "status": "ok"},
+
+  {"type": "dependency_observed", "event_id": "rich-err-1", "timestamp": "2026-05-10T11:57:00Z", "source": "checkout-api", "target": "payments", "latency_ms": 5000, "status": "timeout"},
+  {"type": "dependency_observed", "event_id": "rich-err-2", "timestamp": "2026-05-10T11:57:01Z", "source": "orders-api",   "target": "payments", "latency_ms": 800,  "status": "error"},
+  {"type": "dependency_observed", "event_id": "rich-err-3", "timestamp": "2026-05-10T11:57:02Z", "source": "checkout-api", "target": "inventory", "latency_ms": 25, "status": "ok"},
+
+  {"type": "dependency_observed", "event_id": "rich-stale-1", "timestamp": "2026-05-10T11:58:00Z", "source": "search-api",  "target": "users-db", "latency_ms": 30, "status": "ok"},
+  {"type": "dependency_removed",  "event_id": "rich-stale-2", "timestamp": "2026-05-10T11:58:30Z", "source": "search-api",  "target": "users-db"},
+
+  {"type": "dependency_observed", "event_id": "rich-dup-1", "timestamp": "2026-05-10T11:59:00Z", "source": "checkout-api", "target": "auth", "latency_ms": 14, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "rich-dup-1", "timestamp": "2026-05-10T11:59:00Z", "source": "checkout-api", "target": "auth", "latency_ms": 14, "status": "ok"},
+
+  {"type": "service_metadata", "event_id": "rich-md-late", "timestamp": "2026-05-10T11:59:30Z", "service": "checkout-api", "attributes": {"region": "us-west-2"}},
+
+  {"type": "heartbeat", "event_id": "rich-hb-late-1", "timestamp": "2026-05-10T11:59:55Z", "service": "checkout-api"},
+  {"type": "heartbeat", "event_id": "rich-hb-late-2", "timestamp": "2026-05-10T11:59:55Z", "service": "payments"}
+]

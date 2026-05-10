@@ -1,0 +1,3 @@
+[
+  {"type": "dependency_observed", "event_id": "neg-ts-1", "timestamp": "yesterday", "source": "a", "target": "b", "latency_ms": 10, "status": "ok"}
+]

@@ -2,7 +2,7 @@ package com.groupon.sda.ingest.producer;
 
 import com.groupon.sda.config.IngestProperties;
 import com.groupon.sda.events.generator.EventGenerator;
-import com.groupon.sda.queue.EventQueue;
+import com.groupon.sda.queue.PartitionedEventQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +35,7 @@ public class ProducerManager implements SmartLifecycle {
     private static final int PHASE = 1000;
     private static final Duration JOIN_TIMEOUT = Duration.ofSeconds(30);
 
-    private final EventQueue queue;
+    private final PartitionedEventQueue queues;
     private final IngestProperties props;
     private final EventGenerator generator;   // may be null
 
@@ -44,10 +44,10 @@ public class ProducerManager implements SmartLifecycle {
     private Thread watchdog;
 
     @Autowired
-    public ProducerManager(EventQueue queue,
+    public ProducerManager(PartitionedEventQueue queues,
                            IngestProperties props,
                            @Nullable EventGenerator generator) {
-        this.queue = queue;
+        this.queues = queues;
         this.props = props;
         this.generator = generator;
     }
@@ -66,7 +66,7 @@ public class ProducerManager implements SmartLifecycle {
         running.set(true);
         for (int i = 0; i < n; i++) {
             String name = "sda-producer-" + i;
-            Runnable r = new EventProducerRunnable(name, generator, queue, props, running);
+            Runnable r = new EventProducerRunnable(name, generator, queues, props, running);
             Thread t = Thread.ofVirtual().name(name).start(r);
             threads.add(t);
         }
@@ -82,7 +82,7 @@ public class ProducerManager implements SmartLifecycle {
                 }
             }
             log.info("all producers complete; closing queue so consumers can drain");
-            queue.close();
+            queues.close();
         });
     }
 
@@ -96,8 +96,8 @@ public class ProducerManager implements SmartLifecycle {
         // join() below would hang waiting for a parked producer to come back.
         // Side effect: consumers (lower phase, still running) will start seeing a
         // drain signal — that's fine, they exit cleanly when the buffer empties.
-        if (!queue.isClosed()) {
-            queue.close();
+        if (!queues.isClosed()) {
+            queues.close();
         }
 
         for (Thread t : threads) {

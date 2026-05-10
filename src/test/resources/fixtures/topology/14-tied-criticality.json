@@ -1,0 +1,10 @@
+[
+  {"type": "dependency_observed", "event_id": "tie-cs-01", "timestamp": "2026-05-10T12:00:00Z", "source": "x1", "target": "alpha", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-02", "timestamp": "2026-05-10T12:00:01Z", "source": "x2", "target": "alpha", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-03", "timestamp": "2026-05-10T12:00:02Z", "source": "alpha", "target": "y1", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-04", "timestamp": "2026-05-10T12:00:03Z", "source": "alpha", "target": "y2", "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-05", "timestamp": "2026-05-10T12:00:04Z", "source": "p1", "target": "beta",  "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-06", "timestamp": "2026-05-10T12:00:05Z", "source": "p2", "target": "beta",  "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-07", "timestamp": "2026-05-10T12:00:06Z", "source": "beta", "target": "q1",  "latency_ms": 10, "status": "ok"},
+  {"type": "dependency_observed", "event_id": "tie-cs-08", "timestamp": "2026-05-10T12:00:07Z", "source": "beta", "target": "q2",  "latency_ms": 10, "status": "ok"}
+]

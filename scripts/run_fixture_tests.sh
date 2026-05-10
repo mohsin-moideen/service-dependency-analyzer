@@ -19,8 +19,22 @@ SERVER_PID=""
 
 # Optional first arg: fixture filter. Matches against either the test name
 # (e.g. "topology/02-diamond") or the fixture file path. Substring match.
-# If empty, run everything.
+# If empty, run everything. The literal token "--new" runs only the
+# recently-added fixtures listed in NEW_TESTS below (temporary affordance —
+# remove once the new fixtures are no longer "new").
 FILTER="${1:-}"
+
+# Tests added since the original 23-fixture suite. Used by `--new` mode.
+NEW_TESTS=(
+  "topology/13-tied-shortest-paths"
+  "topology/14-tied-criticality"
+  "metadata/01-incremental-merge"
+  "negative/01-malformed-json"
+  "negative/02-missing-required-field"
+  "negative/03-bad-status-enum"
+  "negative/04-unknown-event-type"
+  "negative/05-bad-timestamp"
+)
 
 start_app() {
   rm -rf "$WORKDIR/data"
@@ -95,7 +109,13 @@ check() {
 }
 
 run() {  # run NAME FIXTURE_FILE BLOCK
-  if [[ -n "$FILTER" && "$1" != *"$FILTER"* && "$2" != *"$FILTER"* ]]; then
+  if [[ "$FILTER" == "--new" ]]; then
+    local match=0
+    for n in "${NEW_TESTS[@]}"; do
+      if [[ "$1" == *"$n"* ]]; then match=1; break; fi
+    done
+    (( match )) || return
+  elif [[ -n "$FILTER" && "$1" != *"$FILTER"* && "$2" != *"$FILTER"* ]]; then
     return
   fi
   echo "=== $1 ==="
@@ -103,6 +123,14 @@ run() {  # run NAME FIXTURE_FILE BLOCK
   post_fixture "$2"
   eval "$3"
   stop_app
+}
+
+# For negative fixtures we want to see the HTTP status + body without the
+# accept/reject summary that post_fixture otherwise prints, and we don't want
+# the script to fail just because the body isn't a BatchAck JSON.
+post_negative() {
+  curl -sS -o /tmp/sda_neg_body -w "%{http_code}" -X POST "$BASE/api/v1/events/batch" \
+    -H 'Content-Type: application/json' --data-binary @"$1"
 }
 
 # --------------------------- TOPOLOGY ---------------------------
@@ -235,10 +263,12 @@ run "out-of-order/03-metadata-before-edges" "$FIXTURES/out-of-order/03-metadata-
 
 run "out-of-order/04-stale-observation-after-removal" "$FIXTURES/out-of-order/04-stale-observation-after-removal.json" '
   # Under last-write-wins-by-timestamp the stale observation (ts < tombstone ts)
-  # must be rejected, so edge a->b should NOT exist after the batch.
-  reach=$(reach_ids a)
-  echo "  reachable(a): $reach"
-  has_b=$(echo "$reach" | jq -c "any(.[]; .==\"b\")")
+  # must be rejected. Under multi-consumer reordering the removed event can also
+  # land before either observed event, in which case node a is never materialized
+  # and reachable/a returns 404 — both outcomes mean the edge is absent.
+  raw=$(curl -sS "$BASE/api/v1/graph/reachable/a")
+  echo "  reachable(a) raw: $raw"
+  has_b=$(echo "$raw" | jq -r "if .reachable then ([.reachable[].id] | any(.==\"b\")) else false end")
   check "ooo-04 (LWW policy) edge a->b absent" "$has_b" "false"
 '
 
@@ -278,6 +308,99 @@ run "health/04-no-in-window-samples" "$FIXTURES/health/04-no-in-window-samples.j
   echo "  health(s, 60s): $h"
   sc=$(echo "$h" | jq -r .sampleCount)
   check "h-04 sample_count==0 (60s window)" "$sc" "0"
+'
+
+# --------------------------- NEW FIXTURES ---------------------------
+
+run "topology/13-tied-shortest-paths" "$FIXTURES/topology/13-tied-shortest-paths.json" '
+  spr=$(sp a d)
+  echo "  sp(a,d): $spr"
+  found=$(echo "$spr" | jq -r .found)
+  weight=$(echo "$spr" | jq -r .totalLatencyMs)
+  path=$(echo "$spr" | jq -c .path)
+  check "13 sp(a,d).found==true"   "$found"  "true"
+  check "13 sp(a,d).weight==20.0"  "$weight" "20.0"
+  # Two ties: [a,b,d] or [a,c,d]. Either is acceptable; assert determinism by
+  # re-querying and comparing.
+  if [[ "$path" == "[\"a\",\"b\",\"d\"]" || "$path" == "[\"a\",\"c\",\"d\"]" ]]; then
+    echo "  PASS 13 sp(a,d).path is one of the two ties ($path)"; PASS+=("13 sp(a,d).path-tie")
+  else
+    echo "  FAIL 13 sp(a,d).path expected [a,b,d] or [a,c,d], got $path"; FAIL+=("13 sp(a,d).path-tie")
+  fi
+  path2=$(sp a d | jq -c .path)
+  check "13 sp(a,d) deterministic"  "$path2" "$path"
+'
+
+run "topology/14-tied-criticality" "$FIXTURES/topology/14-tied-criticality.json" '
+  c=$(crit 2)
+  echo "  crit(k=2): $c"
+  ids=$(echo "$c" | jq -c "[.services[].id]")
+  scores=$(echo "$c" | jq -c "[.services[].score]")
+  check "14 crit(k=2).ids==[alpha,beta]" "$ids"    "[\"alpha\",\"beta\"]"
+  check "14 crit(k=2).scores==[4.0,4.0]" "$scores" "[4.0,4.0]"
+'
+
+run "metadata/01-incremental-merge" "$FIXTURES/metadata/01-incremental-merge.json" '
+  # No metadata-read endpoint exists; assert at minimum that the node materialised
+  # and survives all three partial-attribute events without erroring.
+  code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/v1/graph/reachable/merging-svc")
+  check "md-01 merging-svc materialised (HTTP)" "$code" "200"
+  reach=$(reach_ids merging-svc)
+  check "md-01 merging-svc has no edges"  "$reach" "[]"
+'
+
+# Negative fixtures: we POST to /events/batch and expect HTTP 400 with a
+# structured ApiError body (no stack trace). We deliberately tolerate the
+# `02-missing-required-field` case accepting (Jackson defaults latency_ms to 0)
+# because the README explicitly allows either rejection or acceptance there.
+
+run "negative/01-malformed-json" "$FIXTURES/negative/01-malformed-json.json" '
+  code=$(post_negative "'"$FIXTURES"'/negative/01-malformed-json.json")
+  body=$(cat /tmp/sda_neg_body)
+  echo "  HTTP $code body: $body"
+  err=$(echo "$body" | jq -r .error 2>/dev/null || echo nope)
+  check "neg-01 HTTP==400"               "$code" "400"
+  check "neg-01 error==invalid_request"  "$err"  "invalid_request"
+'
+
+run "negative/02-missing-required-field" "$FIXTURES/negative/02-missing-required-field.json" '
+  code=$(post_negative "'"$FIXTURES"'/negative/02-missing-required-field.json")
+  body=$(cat /tmp/sda_neg_body)
+  echo "  HTTP $code body: $body"
+  # README: rejection or acceptance are both fine; but the response must never
+  # be a 5xx with a stack trace.
+  if [[ "$code" == "400" || "$code" == "202" ]]; then
+    echo "  PASS neg-02 HTTP $code (either accept-with-default or 400 ok)"; PASS+=("neg-02 status")
+  else
+    echo "  FAIL neg-02 unexpected HTTP $code"; FAIL+=("neg-02 status")
+  fi
+'
+
+run "negative/03-bad-status-enum" "$FIXTURES/negative/03-bad-status-enum.json" '
+  code=$(post_negative "'"$FIXTURES"'/negative/03-bad-status-enum.json")
+  body=$(cat /tmp/sda_neg_body)
+  echo "  HTTP $code body: $body"
+  err=$(echo "$body" | jq -r .error 2>/dev/null || echo nope)
+  check "neg-03 HTTP==400"               "$code" "400"
+  check "neg-03 error==invalid_request"  "$err"  "invalid_request"
+'
+
+run "negative/04-unknown-event-type" "$FIXTURES/negative/04-unknown-event-type.json" '
+  code=$(post_negative "'"$FIXTURES"'/negative/04-unknown-event-type.json")
+  body=$(cat /tmp/sda_neg_body)
+  echo "  HTTP $code body: $body"
+  err=$(echo "$body" | jq -r .error 2>/dev/null || echo nope)
+  check "neg-04 HTTP==400"               "$code" "400"
+  check "neg-04 error==invalid_request"  "$err"  "invalid_request"
+'
+
+run "negative/05-bad-timestamp" "$FIXTURES/negative/05-bad-timestamp.json" '
+  code=$(post_negative "'"$FIXTURES"'/negative/05-bad-timestamp.json")
+  body=$(cat /tmp/sda_neg_body)
+  echo "  HTTP $code body: $body"
+  err=$(echo "$body" | jq -r .error 2>/dev/null || echo nope)
+  check "neg-05 HTTP==400"               "$code" "400"
+  check "neg-05 error==invalid_request"  "$err"  "invalid_request"
 '
 
 echo

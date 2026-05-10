@@ -1,0 +1,5 @@
+[
+  {"type": "service_metadata", "event_id": "md-merge-1", "timestamp": "2026-05-10T12:00:00Z", "service": "merging-svc", "attributes": {"team": "platform"}},
+  {"type": "service_metadata", "event_id": "md-merge-2", "timestamp": "2026-05-10T12:00:01Z", "service": "merging-svc", "attributes": {"region": "us-east-1"}},
+  {"type": "service_metadata", "event_id": "md-merge-3", "timestamp": "2026-05-10T12:00:02Z", "service": "merging-svc", "attributes": {"tier": "tier-1"}}
+]

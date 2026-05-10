@@ -2,8 +2,7 @@ package com.groupon.sda.config;
 
 import com.groupon.sda.ingest.dedup.InMemorySetCache;
 import com.groupon.sda.ingest.dedup.SeenEventsCache;
-import com.groupon.sda.queue.ArrayBlockingQueueAdapter;
-import com.groupon.sda.queue.EventQueue;
+import com.groupon.sda.queue.PartitionedEventQueue;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -31,9 +30,18 @@ import javax.sql.DataSource;
 @EnableConfigurationProperties(IngestProperties.class)
 public class IngestConfig {
 
+    /**
+     * One partition per consumer thread. Each consumer drains its private partition,
+     * which gives per-edge ordering: every event for {@code (source, target)} is
+     * always handled by the same consumer in arrival order.
+     *
+     * <p>Producers and the HTTP ingest endpoint publish through
+     * {@link PartitionedEventQueue#publish}/{@link PartitionedEventQueue#tryPublish},
+     * which hashes the partition key and routes to the right queue.
+     */
     @Bean
-    public EventQueue eventQueue(IngestProperties props) {
-        return new ArrayBlockingQueueAdapter(props.queueCapacity());
+    public PartitionedEventQueue eventQueues(IngestProperties props) {
+        return new PartitionedEventQueue(props.consumerCount(), props.queueCapacity());
     }
 
     @Bean

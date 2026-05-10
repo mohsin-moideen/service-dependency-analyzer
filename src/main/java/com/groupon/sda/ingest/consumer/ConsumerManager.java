@@ -1,7 +1,7 @@
 package com.groupon.sda.ingest.consumer;
 
 import com.groupon.sda.config.IngestProperties;
-import com.groupon.sda.queue.EventQueue;
+import com.groupon.sda.queue.PartitionedEventQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -29,15 +29,15 @@ public class ConsumerManager implements SmartLifecycle {
     private static final int PHASE = 500;
     private static final Duration JOIN_TIMEOUT = Duration.ofSeconds(30);
 
-    private final EventQueue queue;
+    private final PartitionedEventQueue queues;
     private final EventConsumer consumer;
     private final IngestProperties props;
 
     private final List<Thread> threads = new ArrayList<>();
     private volatile boolean running = false;
 
-    public ConsumerManager(EventQueue queue, EventConsumer consumer, IngestProperties props) {
-        this.queue = queue;
+    public ConsumerManager(PartitionedEventQueue queues, EventConsumer consumer, IngestProperties props) {
+        this.queues = queues;
         this.consumer = consumer;
         this.props = props;
     }
@@ -45,11 +45,11 @@ public class ConsumerManager implements SmartLifecycle {
     @Override
     public synchronized void start() {
         if (running) return;
-        int n = props.consumerCount();
-        log.info("starting {} consumer thread(s)", n);
+        int n = queues.partitionCount();
+        log.info("starting {} consumer thread(s), one per partition", n);
         for (int i = 0; i < n; i++) {
             String name = "sda-consumer-" + i;
-            Runnable r = new EventConsumerRunnable(name, queue, consumer);
+            Runnable r = new EventConsumerRunnable(name, queues.partition(i), consumer);
             Thread t = Thread.ofVirtual().name(name).start(r);
             threads.add(t);
         }

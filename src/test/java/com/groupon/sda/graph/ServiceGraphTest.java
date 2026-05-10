@@ -332,13 +332,29 @@ class ServiceGraphTest {
     void staleObservationAfterRemovalIsRejected() {
         // Mirrors the in-memory side of out-of-order/02 fixture under arrival reorder:
         // remove(T2) lands first, then observed(T1) where T1 < T2 — the observation
-        // must be rejected as stale (LWW).
+        // must be rejected as stale (via the tombstone check).
         ServiceGraph g = newGraph();
         g.applyDependencyRemoved("a", "b", T0.plusSeconds(1));
         var stats = g.applyDependencyObserved("a", "b", T0, 10, Status.ok);
         assertThat(stats).as("stale observation should be rejected").isNull();
         assertThat(g.edgeCount()).isZero();
         assertThat(g.droppedStaleObservations()).isEqualTo(1);
+    }
+
+    @Test
+    void outOfOrderObservationsWithoutRemovalAllAccumulate() {
+        // Regression for the LWW false-rejection bug. Multiple observations on the
+        // same edge with no tombstone must all land, regardless of the order the
+        // graph's write lock processes them — otherwise multi-consumer reorder
+        // silently drops samples (health/01 flake).
+        ServiceGraph g = newGraph();
+        var s1 = g.applyDependencyObserved("a", "b", T0.plusSeconds(2), 20, Status.ok);
+        // Now apply an "older" event — must NOT be rejected, no tombstone exists.
+        var s2 = g.applyDependencyObserved("a", "b", T0.plusSeconds(1), 10, Status.ok);
+        assertThat(s1).isNotNull();
+        assertThat(s2).as("no-tombstone older observation should still be accepted").isNotNull();
+        assertThat(s2.sampleCount()).isEqualTo(2L);
+        assertThat(g.droppedStaleObservations()).isZero();
     }
 
     @Test
