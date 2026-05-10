@@ -25,6 +25,14 @@ sda:
     producer-count: 2
     consumer-count: 2
     queue-capacity: 10000
+    # 0 = BLOCK indefinitely on put (default, recommended for state-mutation events).
+    # >0 = use timed offer; on timeout the event is dropped with a structured WARN log
+    # and the dropped_events counter increments. Only enable if you'd rather lose
+    # events than block.
+    put-timeout-ms: 0
+    # Sizing hint for SeenEventsCache. The exact-set default ignores it; the future
+    # BloomFilterCache uses it to choose bit-array size given a target FPR.
+    dedup-cache-capacity: 200000
   health:
     window-seconds: 300
 
